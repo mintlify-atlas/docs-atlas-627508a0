@@ -1,0 +1,332 @@
+---
+title: 'Financial Screener'
+description: 'Screen stocks by fundamentals using natural language queries (in development)'
+icon: 'filter'
+---
+
+<Warning>
+**Status**: This feature is currently in development and not yet available in production.
+</Warning>
+
+## Overview
+
+Financial Screener will enable you to find stocks matching specific criteria using natural language queries. Instead of manually filtering through spreadsheets or using complex screener UIs, simply describe what you're looking for and let Finance Agent translate your query into SQL and return matching companies.
+
+<CardGroup cols={2}>
+  <Card title="Natural Language Queries" icon="message">
+    Ask in plain English: "Find tech stocks with P/E ratio less than 20"
+  </Card>
+  <Card title="DuckDB Analytics" icon="database">
+    Powered by DuckDB for fast in-memory analytics over company fundamentals
+  </Card>
+  <Card title="Multi-Criteria Filtering" icon="sliders">
+    Combine multiple filters: sector, market cap, ratios, growth rates, margins
+  </Card>
+  <Card title="Structured Results" icon="table-cells">
+    Returns data in table format with key metrics for each matching stock
+  </Card>
+</CardGroup>
+
+## Planned Capabilities
+
+<AccordionGroup>
+  <Accordion title="Sector & Industry Filtering">
+    - "Find all healthcare companies"
+    - "Show me stocks in the energy sector"
+    - "List software companies with market cap over $10B"
+  </Accordion>
+  
+  <Accordion title="Valuation Metrics">
+    - "Find stocks with P/E ratio less than 15"
+    - "Show me companies trading below book value"
+    - "List stocks with EV/EBITDA under 10"
+  </Accordion>
+  
+  <Accordion title="Growth Metrics">
+    - "Find companies with revenue growth over 20% YoY"
+    - "Show me stocks with positive earnings growth"
+    - "List companies with expanding margins"
+  </Accordion>
+  
+  <Accordion title="Financial Health">
+    - "Find companies with debt-to-equity ratio below 0.5"
+    - "Show me stocks with strong cash positions"
+    - "List companies with improving return on equity"
+  </Accordion>
+  
+  <Accordion title="Dividend Screening">
+    - "Find dividend stocks yielding over 3%"
+    - "Show me companies with dividend growth streaks"
+    - "List high-yield dividend aristocrats"
+  </Accordion>
+  
+  <Accordion title="Comparative Screening">
+    - "Find stocks cheaper than $AAPL on P/E basis"
+    - "Show me companies growing faster than $MSFT"
+    - "List stocks with better margins than industry average"
+  </Accordion>
+</AccordionGroup>
+
+## How It Will Work
+
+When Financial Screener launches, the workflow will be:
+
+1. **Natural Language Input** - You ask a screening question in plain English
+2. **Query Analysis** - LLM interprets your criteria and identifies required metrics
+3. **SQL Generation** - Agent translates to optimized DuckDB SQL query
+4. **Data Retrieval** - Executes query against fundamentals database
+5. **Results Formatting** - Returns matching stocks in table format with key metrics
+6. **Streaming Response** - Results stream back in real-time
+
+## Example Queries (Planned)
+
+### Simple Sector Filter
+```
+Question: Find tech stocks with market cap over $100B
+
+Result:
+| Ticker | Company | Market Cap | Sector | P/E Ratio |
+|--------|---------|------------|--------|----------|
+| AAPL   | Apple   | $2.8T      | Technology | 28.5 |
+| MSFT   | Microsoft | $2.7T    | Technology | 34.2 |
+| GOOGL  | Alphabet | $1.6T     | Technology | 25.8 |
+| NVDA   | NVIDIA  | $1.1T      | Technology | 62.4 |
+...
+
+**4 stocks match your criteria.**
+```
+
+### Multi-Criteria Screen
+```
+Question: Find healthcare stocks with:
+- Market cap between $5B and $50B
+- P/E ratio under 25
+- Revenue growth over 15%
+
+Result:
+| Ticker | Company | Market Cap | P/E | Revenue Growth | Profit Margin |
+|--------|---------|------------|-----|----------------|---------------|
+| DDOG   | Datadog | $42B | 18.5 | 23% | 12% |
+| SNOW   | Snowflake | $38B | 22.1 | 31% | -8% |
+...
+
+**7 stocks match your criteria.**
+
+SQL Query Used:
+SELECT ticker, company_name, market_cap, pe_ratio, revenue_growth, profit_margin
+FROM fundamentals
+WHERE sector = 'Healthcare'
+  AND market_cap BETWEEN 5000000000 AND 50000000000
+  AND pe_ratio < 25
+  AND revenue_growth > 0.15
+ORDER BY market_cap DESC;
+```
+
+### Comparative Screen
+```
+Question: Find stocks growing faster than $MSFT with lower P/E ratios
+
+Result:
+**Microsoft Benchmarks:**
+- Revenue Growth: 16% YoY
+- P/E Ratio: 34.2
+
+**Stocks Matching Criteria:**
+| Ticker | Company | Revenue Growth | P/E Ratio | Sector |
+|--------|---------|----------------|-----------|--------|
+| NVDA   | NVIDIA  | 122% | 62.4 | Technology |
+| META   | Meta    | 23% | 28.1 | Technology |
+| AMD    | AMD     | 18% | 31.5 | Technology |
+...
+
+**12 stocks match your criteria.**
+```
+
+## Planned Features
+
+### Available Metrics (Planned)
+
+**Valuation:**
+- P/E Ratio (Price-to-Earnings)
+- P/B Ratio (Price-to-Book)
+- P/S Ratio (Price-to-Sales)
+- EV/EBITDA
+- PEG Ratio
+
+**Growth:**
+- Revenue Growth (YoY, QoQ)
+- Earnings Growth
+- EPS Growth
+- Free Cash Flow Growth
+
+**Profitability:**
+- Gross Margin
+- Operating Margin
+- Net Profit Margin
+- Return on Equity (ROE)
+- Return on Assets (ROA)
+
+**Financial Health:**
+- Debt-to-Equity Ratio
+- Current Ratio
+- Quick Ratio
+- Cash Position
+- Free Cash Flow
+
+**Dividends:**
+- Dividend Yield
+- Dividend Growth Rate
+- Payout Ratio
+- Dividend History
+
+**Market Data:**
+- Market Capitalization
+- Stock Price
+- 52-Week High/Low
+- Volume
+
+### DuckDB Backend
+
+The screener will use **DuckDB** for analytics:
+- **In-memory processing**: Fast queries over large datasets
+- **SQL interface**: LLM generates optimized SQL from natural language
+- **Columnar storage**: Efficient for analytical workloads
+- **No external database**: Embedded analytics engine
+
+### LLM-to-SQL Translation
+
+The agent will:
+1. Parse natural language query
+2. Identify required metrics and filters
+3. Generate syntactically correct DuckDB SQL
+4. Execute query and format results
+5. Provide natural language summary of findings
+
+## Technical Architecture (Planned)
+
+```
+User Query: "Find tech stocks with P/E < 20"
+  ↓
+Screener Agent
+  ↓
+LLM Query Analysis:
+  - Sector: Technology
+  - Filter: P/E ratio < 20
+  - Metrics to return: ticker, company, market cap, P/E, revenue growth
+  ↓
+SQL Generation:
+  SELECT ticker, company_name, market_cap, pe_ratio, revenue_growth
+  FROM fundamentals
+  WHERE sector = 'Technology' AND pe_ratio < 20
+  ORDER BY market_cap DESC;
+  ↓
+DuckDB Execution → Results
+  ↓
+Response Formatting:
+  - Table with matching stocks
+  - Count of results
+  - SQL query used (for transparency)
+```
+
+## Data Sources (Planned)
+
+- **Fundamentals Database**: Company financial metrics, updated quarterly
+- **Market Data**: Stock prices, market cap, volume
+- **Company Metadata**: Sector, industry, description
+- **Coverage**: S&P 500 and major public companies initially
+
+## Development Status
+
+<Steps>
+  <Step title="Phase 1: Core Infrastructure" icon="check">
+    DuckDB integration and basic fundamentals ingestion (completed)
+  </Step>
+  
+  <Step title="Phase 2: LLM-to-SQL Translation" icon="spinner">
+    Natural language to SQL query generation (in progress)
+  </Step>
+  
+  <Step title="Phase 3: Multi-Criteria Support" icon="hourglass">
+    Support for complex queries with multiple filters (planned)
+  </Step>
+  
+  <Step title="Phase 4: Comparative Screening" icon="hourglass">
+    Benchmark screening ("better than X", "industry average") (planned)
+  </Step>
+  
+  <Step title="Phase 5: Production Launch" icon="hourglass">
+    Full integration into Finance Agent chat interface (planned)
+  </Step>
+</Steps>
+
+## API Endpoint (Planned)
+
+```http
+POST /screener/query/stream
+{
+  "query": "Find healthcare stocks with market cap over $10B and revenue growth over 20%"
+}
+```
+
+Response (streaming):
+```json
+{
+  "type": "screener_start",
+  "message": "Analyzing screening criteria..."
+}
+
+{
+  "type": "sql_generated",
+  "data": {
+    "sql": "SELECT ... FROM fundamentals WHERE ..."
+  }
+}
+
+{
+  "type": "result",
+  "data": {
+    "answer": "7 stocks match your criteria.",
+    "results": [...],
+    "count": 7
+  }
+}
+```
+
+## Limitations (Planned)
+
+- **Quarterly Data Lag**: Fundamentals updated quarterly, not real-time
+- **No Technical Analysis**: Focus is on fundamentals (P/E, revenue, margins), not chart patterns
+- **No Real-Time Prices**: Screening uses end-of-day or end-of-quarter data
+- **SQL Constraints**: Complex queries may require multiple passes or manual refinement
+
+## Roadmap
+
+**Q1 2025** (Target):
+- Core screening with basic metrics (P/E, market cap, sector)
+- Single-criteria queries
+- Table-formatted results
+
+**Q2 2025** (Target):
+- Multi-criteria support
+- Comparative screening ("better than X")
+- Growth and profitability metrics
+
+**Q3 2025** (Target):
+- Dividend screening
+- Financial health metrics
+- Industry average comparisons
+
+**Q4 2025** (Target):
+- Historical screening ("stocks that had P/E < 15 in 2023")
+- Backtesting capabilities
+- Saved screens and alerts
+
+<Note>
+Timeline is subject to change. Follow our [GitHub repository](https://github.com/kamathhrishi/stratalensai) for updates.
+</Note>
+
+## Related Features
+
+- [Earnings Transcripts](/features/earnings-transcripts) - For quarterly earnings analysis
+- [SEC Filings](/features/sec-filings) - For annual 10-K financial data
+- [Real-Time News](/features/real-time-news) - For current market developments

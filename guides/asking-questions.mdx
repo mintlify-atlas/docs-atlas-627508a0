@@ -1,0 +1,242 @@
+---
+title: 'Asking Effective Questions'
+description: 'Learn how to write queries that get the best answers from Finance Agent'
+---
+
+## Overview
+
+Finance Agent uses advanced AI to analyze your questions and retrieve relevant information from earnings transcripts, 10-K filings, and news sources. Understanding how to structure your questions will help you get more accurate and comprehensive answers.
+
+## Answer Modes
+
+The agent automatically determines the appropriate answer mode based on your question's complexity:
+
+<Steps>
+  <Step title="Direct Mode">
+    For simple factual lookups (e.g., "What was AAPL's revenue in Q1 2025?").
+    
+    - **Max iterations**: 2
+    - **Max tokens**: 2,000
+    - **Best for**: Quick facts, single data points
+  </Step>
+
+  <Step title="Standard Mode">
+    For moderate analysis questions (e.g., "How did MSFT's cloud revenue grow in 2024?").
+    
+    - **Max iterations**: 3
+    - **Max tokens**: 6,000
+    - **Best for**: Quarterly comparisons, trend analysis
+  </Step>
+
+  <Step title="Detailed Mode">
+    For comprehensive research (e.g., "Analyze TSLA's profitability trends over the last 8 quarters").
+    
+    - **Max iterations**: 4
+    - **Max tokens**: 16,000
+    - **Best for**: Multi-quarter analysis, deep dives
+  </Step>
+
+  <Step title="Deep Search Mode">
+    For exhaustive research requiring maximum iteration.
+    
+    - **Max iterations**: 10
+    - **Max tokens**: 20,000
+    - **Best for**: Complex multi-company comparisons, comprehensive reports
+  </Step>
+</Steps>
+
+## Ticker References
+
+Always use ticker symbols with the `$` prefix for best results:
+
+<CodeGroup>
+```text Good Examples
+$AAPL
+$MSFT
+$GOOGL
+$TSLA
+```
+
+```text Also Works
+Apple
+Microsoft
+Alphabet
+Tesla
+```
+</CodeGroup>
+
+<Warning>
+The agent supports ticker aliases (e.g., `TSMC` → `TSM`), but using official ticker symbols ensures accurate results.
+</Warning>
+
+## Temporal References
+
+Specify time periods clearly to get data from the right quarters:
+
+### Quarter Format
+
+<CodeGroup>
+```text Database Format (Recommended)
+2025_q1
+2024_q4
+2023_q2
+```
+
+```text Human-Friendly Format
+Q1 2025
+Q4 2024
+last quarter
+latest quarter
+```
+
+```text Multi-Quarter Queries
+last 8 quarters
+last 3 years
+2024 to 2025
+```
+</CodeGroup>
+
+### Available Data
+
+- **Earnings Transcripts**: Quarterly data starting around 2023 (varies by company)
+- **10-K Filings**: Annual data from fiscal year 2019 onward (FY2019, FY2020, etc.)
+- **News**: Recent developments and announcements
+
+<Warning>
+The system has processing limits:
+- **Max quarters**: 12 (3 years of quarterly data)
+- **Max tickers**: 8 companies per query
+
+Queries exceeding these limits will be automatically capped with a notification.
+</Warning>
+
+## Question Types
+
+The agent recognizes different question types and routes them to appropriate data sources:
+
+### Single Company Questions
+
+```text Examples
+What did $AAPL say about iPhone sales in Q1 2025?
+Show me $MSFT's revenue breakdown from their latest 10-K
+What are $TSLA's biggest risks mentioned in their 2024 10-K?
+```
+
+### Multi-Company Comparisons
+
+```text Examples
+Compare gross margins for $AAPL and $MSFT in Q4 2024
+Which had better revenue growth: $GOOGL or $META?
+How do $NVDA, $AMD, and $INTC compare on R&D spending?
+```
+
+### General/Broad Questions
+
+```text Examples
+Which tech companies mentioned AI in their latest earnings?
+What are the top risks in the semiconductor industry?
+Show me companies with strong margin expansion
+```
+
+## Data Source Hints
+
+You can explicitly request specific data sources:
+
+<CodeGroup>
+```text Earnings Transcripts
+What did $AAPL say about services in their latest earnings call?
+From the Q1 2025 earnings transcript, what did management say about margins?
+```
+
+```text 10-K Filings
+Show me $MSFT's risk factors from their 2024 10-K
+What compensation does the CEO receive according to the latest 10-K?
+Check the 10-K for segment revenue breakdown
+```
+
+```text Recent News
+Latest news about $NVDA
+Recent developments for $TSLA
+```
+</CodeGroup>
+
+## Conversation Context
+
+The agent maintains conversation history (last 5 exchanges, max 4,000 chars per message) for follow-up questions:
+
+```text Example Conversation
+User: What was AAPL's revenue in Q1 2025?
+Agent: [Provides answer]
+
+User: What about their services revenue?
+// Agent understands "their" refers to AAPL from previous context
+
+User: Compare them to MSFT
+// Agent compares AAPL (from context) with MSFT
+
+User: What about $WMT?
+// Agent switches to WMT (explicit new ticker overrides context)
+```
+
+<Warning>
+When asking follow-up questions:
+- Use pronouns like "they", "their", "those companies" to reference prior context
+- Name a specific ticker (e.g., "What about $WMT?") to switch to a new company
+- The agent automatically inherits time periods from previous questions unless you specify otherwise
+</Warning>
+
+## Best Practices
+
+<Steps>
+  <Step title="Be Specific with Time Periods">
+    Instead of "recent", use "Q1 2025" or "last 8 quarters"
+  </Step>
+
+  <Step title="Use Official Tickers">
+    `$AAPL` is better than "Apple Inc."
+  </Step>
+
+  <Step title="Request Specific Sections">
+    "Show me the risk factors from $MSFT's 2024 10-K" is more precise than "What are MSFT's risks?"
+  </Step>
+
+  <Step title="Leverage Multi-Source Queries">
+    "What did $NVDA say about data center revenue in Q4 2024 earnings, and what does their 10-K say about segment performance?"
+  </Step>
+
+  <Step title="Use Follow-ups Effectively">
+    Build on previous questions: "What about operating expenses?" (after asking about revenue)
+  </Step>
+</Steps>
+
+## Advanced Query Examples
+
+```text Comprehensive Analysis
+Analyze $AAPL's gross margin trends over the last 8 quarters and compare with guidance from their latest 10-K
+```
+
+```text Cross-Source Research
+What did $MSFT say about Azure growth in Q2 2024 earnings, and how does this compare to the cloud segment revenue in their FY2024 10-K?
+```
+
+```text Competitive Intelligence
+Compare R&D spending as a percentage of revenue for $GOOGL, $META, and $AMZN over the last 3 years
+```
+
+```text Risk Analysis
+What are the top 5 risk factors mentioned in $TSLA's latest 10-K and did they address any of these in Q4 2024 earnings?
+```
+
+## Iterative Improvement
+
+The agent uses an iterative self-improvement process:
+
+1. **Initial Answer**: Generated from retrieved context
+2. **Evaluation**: Assesses confidence and completeness (uses GPT-4.1-mini)
+3. **Follow-up Search**: Identifies gaps and retrieves additional context if needed
+4. **Re-generation**: Produces improved answer with expanded context
+5. **Repeat**: Continues until max iterations or high confidence (0.90+ threshold)
+
+<Note>
+The agent uses all available iterations by default to ensure comprehensive answers. Early stopping only occurs if confidence exceeds 0.95 (near-perfect).
+</Note>

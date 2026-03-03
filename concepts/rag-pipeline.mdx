@@ -1,0 +1,418 @@
+---
+title: 'RAG Pipeline'
+description: 'Understanding retrieval-augmented generation and iterative improvement'
+---
+
+Finance Agent implements a sophisticated **Retrieval-Augmented Generation (RAG)** pipeline that combines semantic search, hybrid retrieval, and iterative self-improvement to deliver accurate, well-sourced financial analysis.
+
+## What is RAG?
+
+Retrieval-Augmented Generation (RAG) is an AI architecture that enhances large language models by:
+
+1. **Retrieving** relevant information from a knowledge base
+2. **Augmenting** the LLM prompt with retrieved context
+3. **Generating** responses grounded in actual data
+
+This approach provides several advantages over pure LLMs:
+
+<CardGroup cols={2}>
+  <Card title="Factual Accuracy" icon="check">
+    Responses are grounded in real financial data, not LLM hallucinations
+  </Card>
+  <Card title="Citations" icon="quote-left">
+    Every claim can be traced back to source documents
+  </Card>
+  <Card title="Up-to-date" icon="clock">
+    Knowledge base can be updated without retraining the model
+  </Card>
+  <Card title="Domain-Specific" icon="building">
+    Specialized for financial analysis with structured data
+  </Card>
+</CardGroup>
+
+## Hybrid Search Strategy
+
+Finance Agent uses **hybrid search** that combines two complementary approaches:
+
+### Vector Search (70% weight)
+
+Semantic similarity using embeddings:
+
+- **Model**: `all-MiniLM-L6-v2` (384 dimensions)
+- **Database**: PostgreSQL with pgvector extension
+- **Similarity**: Cosine distance between query and document embeddings
+- **Advantages**: Understands meaning, handles synonyms, works with natural language
+
+```python
+# From agent/rag/search_engine.py:93-95
+query_embedding = self.embedding_model.encode([query])
+vector_results = self.database_manager._search_postgres_with_ticker(
+    query_embedding, ticker, search_quarter
+)
+```
+
+### Keyword Search (30% weight)
+
+Traditional text matching using TF-IDF:
+
+- **Method**: PostgreSQL full-text search with `ts_rank`
+- **Preprocessing**: Extract keywords, build search vectors
+- **Advantages**: Exact phrase matching, handles technical terms, fast execution
+
+```python
+# Keyword search complements vector search
+keyword_results = self._search_keywords_with_ticker(
+    query, ticker, search_quarter
+)
+```
+
+### Why Hybrid?
+
+Combining both approaches provides the best of both worlds:
+
+<AccordionGroup>
+  <Accordion title="Vector Search Strengths">
+    - Understands "capex" and "capital expenditures" are related
+    - Handles questions phrased differently than source text
+    - Captures semantic meaning beyond exact words
+  </Accordion>
+
+  <Accordion title="Keyword Search Strengths">
+    - Finds exact numbers and technical terms ("$2.5B", "EBITDA")
+    - Better for precise phrase matching
+    - Faster execution on large datasets
+  </Accordion>
+
+  <Accordion title="Combined Power">
+    - Higher recall: Finds more relevant chunks
+    - Better precision: Ranks most relevant chunks first
+    - Robust to different query styles
+  </Accordion>
+</AccordionGroup>
+
+<Info>
+**Configuration**: The 70/30 split is configurable in `rag/config.py`:
+```python
+"vector_weight": 0.7,
+"keyword_weight": 0.3,
+```
+</Info>
+
+## Database Schema
+
+The RAG system uses PostgreSQL with the pgvector extension:
+
+```sql
+-- Earnings call transcripts
+CREATE TABLE transcript_chunks (
+    chunk_text TEXT,              -- 1000 chars max, 200 overlap
+    embedding VECTOR(384),        -- all-MiniLM-L6-v2 embeddings
+    ticker VARCHAR,               -- e.g., "AAPL"
+    year INTEGER,                 -- e.g., 2024
+    quarter INTEGER,              -- 1-4
+    metadata JSONB
+);
+
+-- 10-K filing text chunks
+CREATE TABLE ten_k_chunks (
+    chunk_text TEXT,
+    embedding VECTOR(384),
+    sec_section VARCHAR,          -- item_1, item_7, item_8, etc.
+    sec_section_title TEXT,       -- Human-readable section name
+    is_financial_statement BOOLEAN
+);
+
+-- 10-K extracted tables
+CREATE TABLE ten_k_tables (
+    content JSONB,                -- Table data
+    statement_type VARCHAR,       -- income_statement, balance_sheet, etc.
+    is_financial_statement BOOLEAN
+);
+```
+
+<Note>
+**Chunking strategy**: Text is split into 1000-character chunks with 200-character overlap to ensure context continuity across chunk boundaries.
+</Note>
+
+## Parallel Retrieval
+
+For performance, Finance Agent executes searches in parallel:
+
+### Multi-Ticker Parallelization
+
+When comparing multiple companies:
+
+```python
+Input: "Compare $AAPL and $MSFT revenue"
+
+Process:
+├── Rephrase for AAPL: "revenue and sales performance"
+├── Rephrase for MSFT: "revenue and sales performance"
+├── Search AAPL chunks (parallel)
+├── Search MSFT chunks (parallel)
+├── Synthesis prompt combines both
+└── Output: Comparative analysis
+```
+
+### Multi-Quarter Parallelization
+
+For time-range queries:
+
+```python
+Example: "last 3 quarters" = [2024_q4, 2025_q1, 2025_q2]
+Follow-up phrases: ["capex guidance", "AI investments", "margin trends"]
+
+Execution:
+├── "capex guidance" → searches 2024_q4, 2025_q1, 2025_q2 (parallel)
+├── "AI investments" → searches 2024_q4, 2025_q1, 2025_q2 (parallel)
+└── "margin trends" → searches 2024_q4, 2025_q1, 2025_q2 (parallel)
+
+Result: All chunks deduped by citation, merged into context
+```
+
+<Info>
+Parallel execution uses `ThreadPoolExecutor` with up to 10 workers for maximum throughput.
+</Info>
+
+## Iterative Improvement Loop
+
+The agent doesn't just generate one answer and stop. It performs **iterative self-improvement** until quality thresholds are met:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ITERATION LOOP                                │
+│                                                                  │
+│  ┌──────────────────┐                                           │
+│  │ Generate Answer  │◄──────────────────────────────────┐       │
+│  └────────┬─────────┘                                   │       │
+│           │                                             │       │
+│           ▼                                             │       │
+│  ┌──────────────────┐                                   │       │
+│  │ Evaluate Quality │                                   │       │
+│  │ • completeness   │                                   │       │
+│  │ • specificity    │                                   │       │
+│  │ • accuracy       │                                   │       │
+│  │ • vs. reasoning  │ ← Checks if reasoning goals met   │       │
+│  └────────┬─────────┘                                   │       │
+│           │                                             │       │
+│           ▼                                             │       │
+│  ┌──────────────────┐    YES    ┌─────────────────┐    │       │
+│  │ Confidence < 90% │─────────► │ Search for more │────┘       │
+│  │ & iterations left│           │ context (tools) │            │
+│  └────────┬─────────┘           └─────────────────┘            │
+│           │ NO                                                  │
+│           ▼                                                     │
+│     ┌───────────┐                                               │
+│     │  OUTPUT   │                                               │
+│     └───────────┘                                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Evaluation Metrics
+
+The agent evaluates each answer on four dimensions (0-100 scale):
+
+| Metric | What It Measures |
+|--------|------------------|
+| **Completeness** | Does the answer fully address the question? |
+| **Specificity** | Does it include specific numbers, quotes, dates? |
+| **Accuracy** | Is the information factually correct? |
+| **Clarity** | Is the response well-structured and readable? |
+
+These scores are combined into an **overall confidence** (0-1 scale).
+
+### Iteration Actions
+
+During iteration, the agent can:
+
+<Steps>
+  <Step title="Generate Follow-up Keywords">
+    Create search-optimized keyword phrases (NOT verbose questions) for missing information.
+    
+    **OLD Approach** (verbose questions):
+    ```
+    ❌ "What specific revenue growth percentage was reported?"
+    ```
+    
+    **NEW Approach** (search-optimized keywords):
+    ```
+    ✅ "revenue growth percentage quarter comparison"
+    ✅ "capex guidance 2025 AI allocation"
+    ```
+  </Step>
+  
+  <Step title="Request Transcript Search">
+    Set `needs_transcript_search=true` to search earnings call transcripts.
+  </Step>
+  
+  <Step title="Request News Search">
+    Set `needs_news_search=true` to search for recent developments.
+  </Step>
+  
+  <Step title="Search All Quarters">
+    Each keyword phrase searches ALL target quarters in parallel for comprehensive coverage.
+  </Step>
+  
+  <Step title="Regenerate Answer">
+    Build improved answer with expanded context from all sources.
+  </Step>
+</Steps>
+
+### Stop Conditions
+
+Iteration stops when any of these conditions are met:
+
+1. **Confidence ≥ threshold** (varies by answer mode: 70-95%)
+2. **Max iterations reached** (2-10 depending on answer mode)
+3. **Agent decides answer is sufficient** (explicit satisfaction signal)
+4. **No follow-up keyword phrases generated** (nothing left to search)
+
+<Info>
+The agent automatically adjusts iteration depth based on question complexity (answer mode: direct/standard/detailed).
+</Info>
+
+## Answer Generation
+
+Once sufficient context is retrieved, the agent generates answers using:
+
+### Single-Ticker Responses
+
+For questions about one company:
+
+```python
+# From agent/rag/response_generator.py
+def generate_openai_response(question, chunks, metadata):
+    """
+    Generate response with:
+    - Company-specific context
+    - Quarter metadata preserved
+    - All financial figures included
+    - Citation markers [1], [2], etc.
+    """
+```
+
+### Multi-Ticker Synthesis
+
+For comparative questions:
+
+```python
+def generate_multi_ticker_response(question, ticker_results):
+    """
+    Synthesis requirements:
+    • ALWAYS maintain period metadata (Q1 2025, FY 2024)
+    • ALWAYS include ALL financial figures from ALL sources
+    • Show trends and comparisons across companies
+    • Use human-friendly format: "Q1 2025" not "2025_q1"
+    """
+```
+
+### Citation System
+
+Every claim is backed by citations:
+
+- **Transcript citations**: `[1]`, `[2]`, `[3]`
+- **10-K citations**: `[10K1]`, `[10K2]`, `[10K3]`
+- **News citations**: `[N1]`, `[N2]`, `[N3]`
+
+Citations include:
+- Source type (earnings call, 10-K filing, news article)
+- Company ticker
+- Time period (Q1 2025, FY 2024, date)
+- URL or document reference
+
+## Configuration
+
+The RAG pipeline is highly configurable:
+
+<CodeGroup>
+```python RAG Config (rag/config.py)
+{
+    # Retrieval settings
+    "chunks_per_quarter": 15,      # Results per quarter
+    "max_quarters": 12,            # Max 3 years of data
+    "max_tickers": 8,              # Max companies per query
+
+    # Hybrid search weights
+    "keyword_weight": 0.3,
+    "vector_weight": 0.7,
+
+    # Models
+    "cerebras_model": "qwen-3-235b-a22b-instruct-2507",
+    "openai_model": "gpt-5-nano-2025-08-07",
+    "evaluation_model": "qwen-3-235b-a22b-instruct-2507",
+    "embedding_model": "all-MiniLM-L6-v2",
+    "llm_provider": "cerebras",  # or "openai" | "auto"
+
+    # Chunking
+    "chunk_size": 1000,
+    "chunk_overlap": 200,
+}
+```
+
+```python Answer Mode Config
+ANSWER_MODE_CONFIG = {
+    AnswerMode.DIRECT: {
+        "max_iterations": 2,
+        "max_tokens": 2000,
+        "confidence_threshold": 0.7,
+    },
+    AnswerMode.STANDARD: {
+        "max_iterations": 3,
+        "max_tokens": 6000,
+        "confidence_threshold": 0.8,
+    },
+    AnswerMode.DETAILED: {
+        "max_iterations": 4,
+        "max_tokens": 16000,
+        "confidence_threshold": 0.9,
+    },
+    AnswerMode.DEEP_SEARCH: {
+        "max_iterations": 10,
+        "max_tokens": 20000,
+        "confidence_threshold": 0.95,
+    },
+}
+```
+</CodeGroup>
+
+## Performance Optimizations
+
+<AccordionGroup>
+  <Accordion title="Parallel Execution">
+    Vector and keyword searches run in parallel using `ThreadPoolExecutor` for 2x speedup.
+  </Accordion>
+
+  <Accordion title="Async Embedding">
+    Query embeddings are generated asynchronously to avoid blocking the event loop:
+    ```python
+    async def encode_query_async(self, query: str) -> np.ndarray:
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            self._executor, self.embedding_model.encode, [query]
+        )
+    ```
+  </Accordion>
+
+  <Accordion title="Database Connection Pooling">
+    Reuses database connections across requests to avoid connection overhead.
+  </Accordion>
+
+  <Accordion title="Chunk Deduplication">
+    Removes duplicate chunks across multiple searches to reduce context size.
+  </Accordion>
+
+  <Accordion title="Smart Iteration">
+    Stops early when confidence thresholds are met, avoiding unnecessary LLM calls.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Data Sources" icon="database" href="/concepts/data-sources">
+    Learn about the three specialized data source tools
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/concepts/agent-architecture">
+    Understand the complete six-stage pipeline
+  </Card>
+</CardGroup>

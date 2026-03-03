@@ -1,0 +1,323 @@
+---
+title: "Tech Stack"
+description: "Technologies and frameworks powering Finance Agent"
+icon: "layer-group"
+---
+
+## Overview
+
+Finance Agent is built on a modern stack optimized for AI-powered retrieval-augmented generation (RAG) and real-time streaming responses.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                         FRONTEND                            │
+│  React 19 + TypeScript + Tailwind CSS + Vite               │
+└────────────────────┬────────────────────────────────────────┘
+                     │ HTTP / WebSocket
+┌────────────────────┴────────────────────────────────────────┐
+│                         BACKEND                             │
+│  FastAPI + Uvicorn + Pydantic                               │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+        ┌────────────┼────────────┐
+        │            │            │
+┌───────▼──────┐ ┌──▼─────┐ ┌───▼────────┐
+│ PostgreSQL   │ │ Redis  │ │  AWS S3    │
+│ + pgvector   │ │ Cache  │ │  Storage   │
+└──────────────┘ └────────┘ └────────────┘
+                     │
+        ┌────────────┼────────────────────┐
+        │            │                    │
+┌───────▼──────┐ ┌──▼──────────┐ ┌──────▼────────┐
+│  Cerebras    │ │   OpenAI    │ │    Tavily     │
+│  Qwen-3-235B │ │ GPT-5-nano  │ │  News Search  │
+└──────────────┘ └─────────────┘ └───────────────┘
+```
+
+## Backend Stack
+
+### Web Framework
+
+**FastAPI** - Modern, high-performance Python web framework
+- Automatic OpenAPI/Swagger documentation
+- Built-in request validation with Pydantic
+- Native async/await support for streaming responses
+- Type hints for IDE support and runtime validation
+
+**Uvicorn** - ASGI server for FastAPI
+- High-performance async server
+- WebSocket support for streaming
+- Production-ready with standard configuration
+
+**Starlette** - ASGI framework (FastAPI foundation)
+- Lightweight and fast
+- WebSocket and streaming support
+
+### Database & Storage
+
+**PostgreSQL 12+** - Primary relational database
+- Stores transcript chunks, 10-K chunks, and metadata
+- JSONB support for flexible metadata storage
+- Robust ACID guarantees for data consistency
+
+**pgvector Extension** - Vector similarity search
+- Efficient storage of 384-dimensional embeddings
+- Native PostgreSQL vector operations
+- Hybrid search combining vector similarity with traditional SQL
+
+**DuckDB** - In-process analytical database
+- Used for financial data analysis and screening
+- Fast aggregations over company fundamentals
+
+**AWS S3 (via Railway)** - Object storage
+- Full transcript text and SEC filing documents
+- Cost-effective storage for large documents
+- Separation of embeddings (PostgreSQL) from full text (S3)
+
+**Redis** - In-memory cache
+- Session caching and rate limiting
+- Optional dependency for production deployments
+
+### AI/ML Stack
+
+**Language Models:**
+- **Cerebras** (primary) - Qwen-3-235B-A22B-Instruct-2507
+  - Fast inference for question analysis, response generation, evaluation
+  - Configured via `CEREBRAS_API_KEY`
+- **OpenAI** (fallback) - GPT-5-nano-2025-08-07
+  - Backup LLM provider
+  - Configured via `OPENAI_API_KEY`
+- **Provider Selection** - Configurable via `llm_provider` in `rag/config.py` ("cerebras" | "openai" | "auto")
+
+**Embeddings:**
+- **sentence-transformers** - `all-MiniLM-L6-v2` model
+  - 384-dimensional dense vectors
+  - Optimized for semantic similarity search
+  - Lightweight and fast inference
+
+**RAG Framework:**
+- **LangChain** - Orchestration and utilities
+  - Text splitters for chunking transcripts
+  - Community integrations for data sources
+  - Core abstractions for LLM interactions
+
+### Search & Retrieval
+
+**Hybrid Search Strategy:**
+- **Vector Search** (70% weight) - Semantic similarity via pgvector
+- **Keyword Search** (30% weight) - TF-IDF for exact term matching
+- **Cross-encoder Reranking** - Re-scores results for relevance (SEC agent)
+
+**Data Sources:**
+- **Earnings Transcripts** - Hybrid vector + keyword search (`search_engine.py`)
+- **SEC 10-K Filings** - Specialized retrieval agent with section routing (`sec_filings_service_smart_parallel.py`)
+- **Real-Time News** - Tavily API integration (`tavily_service.py`)
+
+### Authentication & Security
+
+**Clerk** - User authentication (production)
+- JWKS-based JWT verification (RS256)
+- Secure token validation
+- Configured via `CLERK_SECRET_KEY` and `CLERK_PUBLISHABLE_KEY`
+
+**PyJWT** - JWT handling with cryptography support
+- RS256 signature verification
+- Required for Clerk integration
+
+**Legacy Auth** (deprecated, migration in progress):
+- `python-jose`, `passlib`, `Authlib`, Google OAuth libraries
+- Retained for backward compatibility
+
+### Python Dependencies
+
+Key libraries from `requirements.txt`:
+
+```python
+# Core Framework
+fastapi
+uvicorn[standard]
+starlette
+
+# Database
+asyncpg==0.30.0          # Async PostgreSQL driver
+psycopg2-binary           # Sync PostgreSQL driver
+SQLAlchemy                # ORM
+
+# Authentication
+PyJWT[crypto]             # Clerk JWT verification
+
+# AI/ML
+openai                    # OpenAI API client
+cerebras-cloud-sdk        # Cerebras API client
+langchain==0.3.18         # RAG orchestration
+langchain-community==0.3.17
+langchain-core==0.3.34
+langchain-openai
+langchain-text-splitters==0.3.6
+sentence-transformers==3.4.1  # Embeddings
+tiktoken==0.8.0           # Token counting
+
+# Data Processing
+pandas
+numpy==2.2.5
+
+# Utilities
+pydantic==2.10.6          # Data validation
+tavily==1.1.0             # News search
+redis==5.2.1              # Caching
+tenacity==9.0.0           # Retries
+boto3>=1.35.0             # AWS S3
+
+# Monitoring
+logfire[fastapi]
+logfire[asyncpg]
+```
+
+## Frontend Stack
+
+### Core Framework
+
+**React 19.2** - UI library
+- Latest version with improved hooks and concurrent features
+- Component-based architecture
+- Virtual DOM for performance
+
+**TypeScript 5.9** - Type-safe JavaScript
+- Compile-time type checking
+- Enhanced IDE support
+- Reduced runtime errors
+
+**Vite 7.2** - Build tool and dev server
+- Fast hot module replacement (HMR)
+- Optimized production builds
+- Native ES modules support
+
+### UI & Styling
+
+**Tailwind CSS 4.1** - Utility-first CSS framework
+- Rapid UI development
+- Consistent design system
+- Minimal bundle size with tree-shaking
+
+**Tailwind Typography** - Beautiful typographic defaults
+- Prose styles for markdown content
+- Responsive text scaling
+
+**Framer Motion 12.29** - Animation library
+- Smooth transitions and animations
+- Gesture support
+- Layout animations
+
+**Lucide React** - Icon library
+- Modern, consistent icon set
+- Tree-shakeable for small bundle size
+
+### Routing & Markdown
+
+**React Router DOM 7.13** - Client-side routing
+- Nested routes and layouts
+- Programmatic navigation
+- URL parameter handling
+
+**React Markdown 10.1** - Markdown rendering
+- GitHub-flavored markdown support
+- Code syntax highlighting
+- Custom component rendering
+
+**Remark GFM 4.0** - GitHub-flavored markdown plugin
+- Tables, task lists, strikethrough
+- Auto-linking
+
+**Rehype Raw 7.0** - HTML in markdown
+- Allows custom HTML elements in markdown
+
+### Authentication & Analytics
+
+**Clerk React** - Authentication UI
+- Pre-built sign-in/sign-up components
+- User management
+- Session handling
+
+**PostHog** - Product analytics
+- User behavior tracking
+- Feature flags
+- Session replay
+
+### Frontend Dependencies
+
+Key libraries from `frontend/package.json`:
+
+```json
+{
+  "dependencies": {
+    "@clerk/clerk-react": "^5.60.0",
+    "@posthog/react": "^1.8.0",
+    "framer-motion": "^12.29.2",
+    "lucide-react": "^0.563.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "react-router-dom": "^7.13.0",
+    "tailwindcss": "^4.1.18"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^5.1.1",
+    "typescript": "~5.9.3",
+    "eslint": "^9.39.1",
+    "vite": "^7.2.4"
+  }
+}
+```
+
+## External Services
+
+### Required APIs
+
+| Service | Purpose | Environment Variable |
+|---------|---------|----------------------|
+| **Cerebras** | Primary LLM (Qwen-3-235B) | `CEREBRAS_API_KEY` |
+| **OpenAI** | Fallback LLM (GPT-5-nano) | `OPENAI_API_KEY` |
+| **API Ninjas** | Company metadata | `API_NINJAS_KEY` |
+| **Clerk** | Authentication (production) | `CLERK_SECRET_KEY`, `CLERK_PUBLISHABLE_KEY` |
+
+### Optional APIs
+
+| Service | Purpose | Environment Variable |
+|---------|---------|----------------------|
+| **Tavily** | Real-time news search | `TAVILY_API_KEY` |
+| **Logfire** | Observability and monitoring | `LOGFIRE_TOKEN` |
+| **Redis** | Caching and session storage | `REDIS_URL` |
+
+## Development Tools
+
+**Backend:**
+- **Tenacity** - Retry logic with exponential backoff
+- **Logfire** - Observability for FastAPI and asyncpg
+- **Pydantic Settings** - Environment variable management
+
+**Frontend:**
+- **ESLint** - Code linting
+- **TypeScript ESLint** - TypeScript-specific linting rules
+- **Vite** - Development server with HMR
+
+## Performance Optimizations
+
+1. **Async/Await** - Non-blocking I/O throughout backend
+2. **Streaming Responses** - Real-time answer generation and progress updates
+3. **Parallel Execution** - Multi-ticker queries run concurrently
+4. **Connection Pooling** - Efficient database connection management (asyncpg)
+5. **Vector Indexing** - Fast similarity search with pgvector IVFFlat indexes
+6. **Hybrid Search** - Combines semantic and keyword search for better recall
+7. **Cross-encoder Reranking** - Improves precision for SEC filings
+8. **Redis Caching** - Reduces redundant database queries (optional)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Project Structure" icon="folder-tree" href="/development/project-structure">
+    Understand the codebase organization
+  </Card>
+  <Card title="Database Schema" icon="database" href="/development/database-schema">
+    Explore the data models and tables
+  </Card>
+</CardGroup>

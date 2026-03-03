@@ -1,0 +1,390 @@
+---
+title: 'RAGAgent'
+description: 'Orchestration and response generation for RAG system'
+icon: 'brain'
+---
+
+## Overview
+
+The `RAGAgent` class orchestrates the complete RAG (Retrieval-Augmented Generation) flow including question analysis, multi-source search, response generation, and iterative improvement.
+
+## Class Definition
+
+### RAGAgent
+
+```python
+from agent.rag.rag_agent import RAGAgent
+
+agent = RAGAgent(openai_api_key="your-api-key")
+```
+
+## Constructor
+
+### `__init__(openai_api_key=None)`
+
+Initialize the RAG Agent with all necessary components.
+
+<ParamField path="openai_api_key" type="Optional[str]" default="None">
+  OpenAI API key for LLM operations. If None, will attempt to load from environment variables.
+</ParamField>
+
+**Raises:**
+- `ValueError` - If OpenAI API key is not provided and not found in environment
+
+```python
+import os
+from agent.rag.rag_agent import RAGAgent
+
+# With explicit API key
+agent = RAGAgent(openai_api_key="sk-...")
+
+# From environment variable
+agent = RAGAgent()  # Uses OPENAI_API_KEY env var
+```
+
+## Core Methods
+
+### set_database_connection(db_connection)
+
+Set the database connection for retrieving conversation history.
+
+<ParamField path="db_connection" type="Database Connection">
+  Database connection object for conversation memory
+</ParamField>
+
+```python
+from psycopg2 import connect
+
+# Create database connection
+conn = connect(database="finance_db", user="user")
+
+# Set on agent
+agent.set_database_connection(conn)
+```
+
+## RAG Flow Pipeline
+
+The RAG agent executes a multi-stage pipeline:
+
+### Stage 1: Setup
+- Initialize context and logging
+- Set maximum iterations
+
+### Stage 2: Reasoning
+- Analyze question with LLM
+- Extract metadata (tickers, quarters)
+- Explain research approach
+
+### Stage 3: Search Planning
+- Resolve temporal references to specific quarters
+- Generate queries for each data source
+
+### Stage 4: Parallel Multi-Source Search
+
+Runs searches in parallel for maximum performance:
+
+<Tabs>
+  <Tab title="News Search">
+    Optional Tavily news search if included in search plan
+    ```python
+    # Automatically triggered if news is relevant
+    # Returns recent news articles and context
+    ```
+  </Tab>
+  <Tab title="10-K Search">
+    SEC 10-K filing search if included in plan
+    ```python
+    # Searches annual reports and filings
+    # Extracts financial data and disclosures
+    ```
+  </Tab>
+  <Tab title="Transcript Search">
+    Vector + keyword search over earnings transcripts
+    ```python
+    # Hybrid search combining:
+    # - Vector similarity search
+    # - Keyword-based search
+    # - Merged and ranked results
+    ```
+  </Tab>
+</Tabs>
+
+### Stage 5: Context Preparation
+- Build news/10-K context strings
+- Combine citations from all sources
+
+### Stage 6: Improvement Loop
+- Generate initial answer
+- Evaluate quality and confidence
+- Perform follow-up searches if needed
+- Re-generate answer with additional context
+
+### Stage 7: Finalization
+- Deduplicate citations
+- Build final result structure
+- Update conversation memory
+
+## Internal Methods
+
+### Question Analysis
+
+```python
+async def _perform_question_analysis(question: str, conversation_id: str) -> tuple
+```
+
+Performs comprehensive question analysis:
+
+<ParamField path="question" type="str">
+  The user's question to analyze
+</ParamField>
+
+<ParamField path="conversation_id" type="str">
+  Unique conversation identifier
+</ParamField>
+
+**Returns:** `tuple` of (question_analysis, target_quarters, error_dict)
+
+- **question_analysis** (Dict): Analysis results including status, tickers, question type, processed question, and quarter context
+- **target_quarters** (List[str]): Quarters to search (e.g., `['2025_q1', '2025_q2']`)
+- **error_dict** (Dict): Error information if validation fails
+
+### Search Execution
+
+```python
+async def _execute_search(ctx: RAGFlowContext) -> None
+```
+
+Execute search based on question type (general vs ticker-specific).
+
+**Reads from context:**
+- question
+- question_analysis
+- target_quarters
+
+**Writes to context:**
+- individual_results
+- all_chunks
+- all_citations
+- search_time
+- is_general_question
+- is_multi_ticker
+- tickers_to_process
+- target_quarter
+
+### Ticker Processing
+
+```python
+def _process_single_ticker_sync(
+    ticker: str,
+    question: str,
+    processed_question: str,
+    is_multi_ticker: bool,
+    target_quarters: List[str]
+) -> Dict[str, Any]
+```
+
+Process a single ticker with synchronous search and answer generation.
+
+<ParamField path="ticker" type="str">
+  Ticker symbol to process
+</ParamField>
+
+<ParamField path="question" type="str">
+  Original user question
+</ParamField>
+
+<ParamField path="processed_question" type="str">
+  Cleaned/normalized question
+</ParamField>
+
+<ParamField path="is_multi_ticker" type="bool">
+  Whether this is part of multi-ticker query
+</ParamField>
+
+<ParamField path="target_quarters" type="List[str]">
+  Quarters to search
+</ParamField>
+
+**Returns:** Dictionary containing ticker, answer, chunks, context_chunks, and citations
+
+### Parallel Processing
+
+```python
+def _process_tickers_parallel_sync(
+    tickers: List[str],
+    question: str,
+    processed_question: str,
+    is_multi_ticker: bool,
+    target_quarters: List[str]
+) -> List[Dict[str, Any]]
+```
+
+Process multiple tickers in parallel using ThreadPoolExecutor.
+
+<ParamField path="tickers" type="List[str]">
+  List of ticker symbols to process
+</ParamField>
+
+**Returns:** List of result dictionaries, one per ticker
+
+## Configuration
+
+The agent uses a `Config` object with these key settings:
+
+<ResponseField name="hybrid_search_enabled" type="bool" default="True">
+  Enable/disable hybrid search (vector + keyword)
+</ResponseField>
+
+<ResponseField name="vector_weight" type="float" default="0.7">
+  Weight for vector search results in hybrid search
+</ResponseField>
+
+<ResponseField name="keyword_weight" type="float" default="0.3">
+  Weight for keyword search results in hybrid search
+</ResponseField>
+
+<ResponseField name="max_quarters" type="int" default="12">
+  Maximum number of quarters to search (3 years)
+</ResponseField>
+
+<ResponseField name="max_tickers" type="int" default="4">
+  Maximum number of tickers to process in parallel
+</ResponseField>
+
+<ResponseField name="chunks_per_quarter" type="int" default="15">
+  Number of chunks to retrieve per quarter
+</ResponseField>
+
+## Usage Examples
+
+<Tabs>
+  <Tab title="Basic Usage">
+    ```python
+    from agent.rag.rag_agent import RAGAgent
+    import os
+
+    # Initialize agent
+    agent = RAGAgent(openai_api_key=os.getenv("OPENAI_API_KEY"))
+
+    # The agent is ready to process questions
+    # Question analysis and search will happen automatically
+    # when the agent's execute method is called
+    ```
+  </Tab>
+  <Tab title="With Database">
+    ```python
+    from agent.rag.rag_agent import RAGAgent
+    from psycopg2 import connect
+    import os
+
+    # Initialize agent
+    agent = RAGAgent(openai_api_key=os.getenv("OPENAI_API_KEY"))
+
+    # Set up database connection for conversation memory
+    conn = connect(
+        database="finance_db",
+        user="user",
+        password="password",
+        host="localhost"
+    )
+
+    agent.set_database_connection(conn)
+
+    # Agent can now access conversation history
+    ```
+  </Tab>
+  <Tab title="Custom Config">
+    ```python
+    from agent.rag.rag_agent import RAGAgent
+    from agent.rag.config import Config
+    import os
+
+    # Create custom config
+    config = Config()
+    config.set("max_quarters", 8)  # Limit to 2 years
+    config.set("max_tickers", 6)   # Allow more tickers
+    config.set("vector_weight", 0.8)  # Prefer vector search
+
+    # Initialize agent
+    agent = RAGAgent(openai_api_key=os.getenv("OPENAI_API_KEY"))
+    agent.config = config
+    ```
+  </Tab>
+</Tabs>
+
+## Components
+
+The RAG Agent initializes and orchestrates several components:
+
+<CardGroup cols={2}>
+  <Card title="DatabaseManager" icon="database">
+    Manages database connections and queries
+  </Card>
+  <Card title="QuestionAnalyzer" icon="comment-question">
+    Analyzes questions to extract intent and entities
+  </Card>
+  <Card title="ReasoningPlanner" icon="lightbulb">
+    Plans research approach and strategy
+  </Card>
+  <Card title="SearchPlanner" icon="route">
+    Plans which data sources to query
+  </Card>
+  <Card title="SearchEngine" icon="magnifying-glass">
+    Executes hybrid search operations
+  </Card>
+  <Card title="ResponseGenerator" icon="message">
+    Generates natural language responses
+  </Card>
+  <Card title="TavilyService" icon="newspaper">
+    Fetches recent news articles
+  </Card>
+  <Card title="SECFilingsService" icon="file-invoice">
+    Retrieves and processes 10-K filings
+  </Card>
+</CardGroup>
+
+## Logging
+
+The RAG Agent provides detailed logging at multiple levels:
+
+```python
+import logging
+
+# Configure logging to see agent operations
+logging.basicConfig(level=logging.INFO)
+
+# Specific loggers:
+# - 'rag_agent' - RAG flow operations
+# - 'rag_system' - Low-level system operations
+```
+
+## Error Handling
+
+The agent handles various error scenarios:
+
+- **Missing API Key**: Raises `ValueError` on initialization
+- **Database Errors**: Logs warning and continues with default config
+- **Quarter Unavailable**: Returns user-friendly error with available quarters
+- **No Results**: Returns empty context response when no data is found
+- **Search Failures**: Falls back gracefully and logs errors
+
+## Performance Optimization
+
+The RAG Agent includes several performance optimizations:
+
+1. **Parallel Search**: Multiple data sources searched concurrently
+2. **Thread Pool**: CPU-bound operations executed in thread pool
+3. **Multi-Ticker Parallel**: Tickers processed simultaneously
+4. **Multi-Quarter Parallel**: Quarters searched in parallel
+5. **Async Operations**: Non-blocking I/O operations
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="SearchEngine" icon="magnifying-glass" href="/api/python/search-engine">
+    Search operations and hybrid search implementation
+  </Card>
+  <Card title="Agent" icon="robot" href="/api/python/agent">
+    Main agent interface and aliases
+  </Card>
+</CardGroup>

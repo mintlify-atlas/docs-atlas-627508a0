@@ -1,0 +1,353 @@
+---
+title: 'Contributing Guide'
+description: 'How to contribute to Finance Agent'
+---
+
+We welcome contributions to Finance Agent! This guide will help you get started with contributing code, reporting issues, and submitting pull requests.
+
+## Getting Started
+
+Before contributing, please:
+
+1. Read through the main [README](https://github.com/kamathhrishi/stratalensai) to understand the project
+2. Review the [Agent System Documentation](/agent/README.md) for architecture details
+3. Check existing [issues](https://github.com/kamathhrishi/stratalensai/issues) and [pull requests](https://github.com/kamathhrishi/stratalensai/pulls)
+
+## Development Setup
+
+<Steps>
+<Step title="Clone the repository">
+
+```bash
+git clone https://github.com/kamathhrishi/stratalensai.git
+cd finance_agent
+```
+
+</Step>
+
+<Step title="Install dependencies">
+
+```bash
+pip install -r requirements.txt
+```
+
+</Step>
+
+<Step title="Configure environment">
+
+Copy the example environment file and add your API keys:
+
+```bash
+cp .env.example .env
+```
+
+Required environment variables:
+- `OPENAI_API_KEY` - For embeddings and LLM features
+- `API_NINJAS_KEY` - For earnings transcripts
+- `CEREBRAS_API_KEY` - For fast inference (optional)
+- `DATABASE_URL` - PostgreSQL connection string
+- `CLERK_SECRET_KEY` / `CLERK_PUBLISHABLE_KEY` - For authentication (production)
+
+See `.env.example` for the complete list.
+
+</Step>
+
+<Step title="Set up the database">
+
+Ensure PostgreSQL is running with the pgvector extension:
+
+```bash
+# Install pgvector extension in your database
+psql $DATABASE_URL -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
+
+</Step>
+
+<Step title="Run the development server">
+
+```bash
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+The application will be available at `http://localhost:8000`.
+
+</Step>
+</Steps>
+
+## Code Style Guidelines
+
+### Python Code Standards
+
+Finance Agent follows these Python conventions:
+
+<CodeGroup>
+```python Naming Conventions
+# Files: snake_case.py
+# Classes: PascalCase
+class RAGAgent:
+    pass
+
+# Functions and variables: snake_case
+def search_similar_chunks(query, top_k):
+    chunk_count = 10
+    return results
+
+# Constants: UPPER_SNAKE_CASE
+MAX_ITERATIONS = 4
+DEFAULT_CONFIDENCE_THRESHOLD = 0.90
+```
+
+```python Type Hints
+# Always use type hints for function parameters and returns
+from typing import List, Dict, Optional
+
+async def get_transcript(
+    ticker: str,
+    year: int,
+    quarter: int,
+    db: asyncpg.Connection
+) -> Optional[Dict[str, any]]:
+    """Fetch earnings transcript from database."""
+    pass
+```
+
+```python Async/Await
+# Use async/await for database operations
+async def fetch_chunks(query: str, db: asyncpg.Connection):
+    results = await db.fetch(
+        'SELECT * FROM transcript_chunks WHERE query = $1',
+        query
+    )
+    return results
+```
+</CodeGroup>
+
+### FastAPI Patterns
+
+Follow these patterns for API endpoints:
+
+```python
+from fastapi import APIRouter, Depends, HTTPException
+from app.schemas import ResponseModel, RequestModel
+from app.dependencies import get_current_user, get_db
+
+router = APIRouter()
+
+@router.post("/endpoint", response_model=ResponseModel)
+async def endpoint_function(
+    request_data: RequestModel,
+    current_user: dict = Depends(get_current_user),
+    db: asyncpg.Connection = Depends(get_db)
+):
+    """Clear docstring explaining endpoint purpose."""
+    try:
+        # Implementation
+        return ResponseModel(success=True, data=result)
+    except Exception as e:
+        logger.error(f"Error in endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+```
+
+### Security Best Practices
+
+<Warning>
+**Never commit sensitive information:**
+- API keys and tokens
+- Database credentials
+- `.env` files
+- User data or PII
+</Warning>
+
+- Always use parameterized queries (never string concatenation)
+- Validate and sanitize all user inputs
+- Use appropriate HTTP status codes (400, 401, 403, 404, 500)
+- Log errors with context but never log sensitive data
+
+## Project Structure
+
+Understanding the codebase organization:
+
+```
+finance_agent/
+├── agent/                  # AI agent & RAG system
+│   ├── llm/               # LLM clients (OpenAI/Cerebras)
+│   ├── rag/               # RAG implementation
+│   │   ├── rag_agent.py   # Main orchestration
+│   │   ├── search_engine.py # Hybrid search
+│   │   ├── sec_filings_service_smart_parallel.py # SEC agent
+│   │   └── data_ingestion/ # Data pipelines
+│   ├── prompts.py         # LLM prompt templates
+│   └── agent_config.py    # Agent configuration
+├── app/                   # FastAPI application
+│   ├── routers/           # API route handlers
+│   └── schemas/           # Pydantic models
+├── frontend/              # React + TypeScript UI
+├── db/                    # Database utilities
+└── analytics/             # Usage tracking
+```
+
+## Making Changes
+
+<Steps>
+<Step title="Create a feature branch">
+
+```bash
+git checkout -b feature/your-feature-name
+```
+
+Use descriptive branch names:
+- `feature/add-10q-support` for new features
+- `fix/search-timeout` for bug fixes
+- `refactor/improve-caching` for refactoring
+
+</Step>
+
+<Step title="Make your changes">
+
+- Follow the code style guidelines above
+- Add docstrings to new functions and classes
+- Update relevant documentation
+- Keep commits focused and atomic
+
+</Step>
+
+<Step title="Test your changes">
+
+Run the application locally and verify your changes work:
+
+```bash
+# Start the server
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+# Test the API endpoints
+curl http://localhost:8000/docs
+```
+
+See [Testing Guide](/development/testing) for more details.
+
+</Step>
+
+<Step title="Commit your changes">
+
+Use clear, descriptive commit messages:
+
+```bash
+git add .
+git commit -m "feat: add support for 10-Q quarterly filings"
+```
+
+**Commit message format:**
+```
+type(scope): brief description
+
+- Detailed change 1
+- Detailed change 2
+```
+
+Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`
+
+</Step>
+</Steps>
+
+## Pull Request Process
+
+<Steps>
+<Step title="Push your branch">
+
+```bash
+git push origin feature/your-feature-name
+```
+
+</Step>
+
+<Step title="Open a pull request">
+
+Go to the [repository](https://github.com/kamathhrishi/stratalensai) and click **New Pull Request**.
+
+Your PR description should include:
+- **What**: Summary of changes
+- **Why**: Motivation and context
+- **How**: Implementation approach
+- **Testing**: How you tested the changes
+- **Screenshots**: If UI changes are involved
+
+</Step>
+
+<Step title="Address review feedback">
+
+Maintainers will review your PR and may request changes. Please:
+- Respond to feedback promptly
+- Make requested changes in new commits
+- Re-request review when ready
+
+</Step>
+
+<Step title="Merge">
+
+Once approved, a maintainer will merge your PR. Thank you for contributing!
+
+</Step>
+</Steps>
+
+## Contribution Guidelines
+
+### Documentation
+
+<Check>
+**Do create documentation when:**
+- Adding new major features requiring setup
+- Creating public APIs for external developers
+- User explicitly requests documentation
+</Check>
+
+<Warning>
+**Do NOT create documentation automatically for:**
+- Routine code changes
+- Internal refactoring
+- Minor bug fixes
+</Warning>
+
+Prefer inline code comments for complex logic.
+
+### File Management
+
+- **Always prefer editing existing files** over creating new ones
+- Never create helper scripts or temporary files unless necessary
+- Clean up temporary files immediately after use
+- Ask for clarification if requirements are ambiguous
+
+### Code Quality
+
+- Write clear, self-documenting code
+- Add comments for complex logic
+- Use existing helper functions and utilities
+- Handle errors gracefully with appropriate logging
+- Maintain backward compatibility when possible
+
+## Reporting Issues
+
+Found a bug or have a feature request? Please [open an issue](https://github.com/kamathhrishi/stratalensai/issues/new).
+
+**For bugs, include:**
+- Clear description of the issue
+- Steps to reproduce
+- Expected vs actual behavior
+- Environment details (OS, Python version, etc.)
+- Relevant logs or error messages
+
+**For feature requests, include:**
+- Use case and motivation
+- Proposed solution or approach
+- Any alternatives considered
+
+## Community
+
+Questions or need help?
+
+- Email: [hrishi@stratalens.ai](mailto:hrishi@stratalens.ai)
+- Check existing [issues](https://github.com/kamathhrishi/stratalensai/issues)
+- Review the [documentation](https://www.stratalens.ai)
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the MIT License.

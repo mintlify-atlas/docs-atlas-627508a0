@@ -1,0 +1,558 @@
+---
+title: Environment Variables
+description: Complete reference for all environment variables used in Finance Agent
+---
+
+## Overview
+
+Finance Agent uses environment variables for configuration. Copy `.env.example` to `.env` and configure the values below.
+
+<Warning>
+  **Never commit `.env` to version control!** It contains sensitive API keys and credentials.
+</Warning>
+
+## Required Variables
+
+### AI/ML API Keys
+
+#### OPENAI_API_KEY
+
+```bash
+OPENAI_API_KEY=sk-your-openai-api-key-here
+```
+
+**Required**: Yes
+
+**Purpose**: OpenAI API access for:
+- Embeddings generation (text-embedding-3-small)
+- Response generation (GPT-4 models)
+- Fallback LLM when Cerebras is unavailable
+
+**Get it**: [OpenAI API Keys](https://platform.openai.com/api-keys)
+
+---
+
+#### API_NINJAS_KEY
+
+```bash
+API_NINJAS_KEY=your-api-ninjas-key-here
+```
+
+**Required**: Yes
+
+**Purpose**: Access to earnings transcripts and financial data via API Ninjas
+
+**Get it**: [API Ninjas](https://api-ninjas.com/)
+
+---
+
+#### CEREBRAS_API_KEY
+
+```bash
+CEREBRAS_API_KEY=your-cerebras-api-key-here
+```
+
+**Required**: Yes (primary LLM)
+
+**Purpose**: Fast inference using Cerebras Cloud SDK
+- Primary LLM for RAG responses (Qwen-3-235B model)
+- Significantly faster than OpenAI for large-scale queries
+
+**Get it**: [Cerebras Cloud](https://cloud.cerebras.ai/)
+
+<Note>
+  Cerebras is the default LLM provider for optimal performance. Set `RAG_LLM_PROVIDER=openai` to use OpenAI instead.
+</Note>
+
+---
+
+### Database Configuration
+
+#### DATABASE_URL
+
+```bash
+DATABASE_URL=postgresql://username:password@localhost:5432/stratalens
+```
+
+**Required**: Yes
+
+**Purpose**: PostgreSQL connection string for:
+- User authentication and management
+- Chat history and conversations
+- Query analytics and logging
+- Application state
+
+**Format**: `postgresql://[username]:[password]@[host]:[port]/[database]`
+
+<Warning>
+  The database must have the **pgvector** extension installed. See [Database Setup](/development/database-setup).
+</Warning>
+
+---
+
+### Authentication (Production)
+
+#### CLERK_SECRET_KEY
+
+```bash
+CLERK_SECRET_KEY=sk_test_your-clerk-secret-key
+```
+
+**Required**: Yes (for production)
+
+**Purpose**: Clerk server-side authentication secret
+
+**Get it**: [Clerk Dashboard](https://dashboard.clerk.com) → Your App → API Keys
+
+---
+
+#### CLERK_PUBLISHABLE_KEY
+
+```bash
+CLERK_PUBLISHABLE_KEY=pk_test_your-clerk-publishable-key
+```
+
+**Required**: Yes (for production)
+
+**Purpose**: Clerk client-side authentication key (safe to expose)
+
+**Get it**: [Clerk Dashboard](https://dashboard.clerk.com) → Your App → API Keys
+
+---
+
+#### VITE_CLERK_PUBLISHABLE_KEY
+
+```bash
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_your-clerk-publishable-key
+```
+
+**Required**: Yes (for frontend)
+
+**Purpose**: Same as `CLERK_PUBLISHABLE_KEY`, but with `VITE_` prefix for Vite to expose to browser
+
+<Note>
+  This should have the **same value** as `CLERK_PUBLISHABLE_KEY`.
+</Note>
+
+---
+
+#### CLERK_WEBHOOK_SECRET
+
+```bash
+CLERK_WEBHOOK_SECRET=whsec_your-webhook-secret
+```
+
+**Required**: Optional
+
+**Purpose**: Verify Clerk webhook signatures for user events
+
+---
+
+## Optional Variables
+
+### External Services
+
+#### TAVILY_API_KEY
+
+```bash
+TAVILY_API_KEY=your-tavily-api-key-here
+```
+
+**Required**: Optional
+
+**Purpose**: Real-time web search for latest news and market developments
+
+**Get it**: [Tavily](https://tavily.com/)
+
+---
+
+#### REDIS_URL
+
+```bash
+REDIS_URL=redis://localhost:6379
+```
+
+**Required**: Optional
+
+**Purpose**: Caching for WebSocket sessions and query results
+
+**Default**: `redis://localhost:6379`
+
+---
+
+#### LOGFIRE_TOKEN
+
+```bash
+LOGFIRE_TOKEN=your-logfire-token-here
+```
+
+**Required**: Optional
+
+**Purpose**: Application observability and monitoring via Logfire
+
+**Get it**: [Logfire](https://logfire.ai/)
+
+---
+
+### Application Settings
+
+#### ENVIRONMENT
+
+```bash
+ENVIRONMENT=development
+```
+
+**Required**: No
+
+**Default**: `development`
+
+**Purpose**: Environment detection for configuration
+
+**Values**:
+- `development` - Local development (increased connection limits, verbose logging)
+- `production` - Production deployment (stricter limits, optimized settings)
+
+---
+
+#### BASE_URL
+
+```bash
+BASE_URL=http://localhost:8000
+```
+
+**Required**: Yes
+
+**Purpose**: Server base URL for CORS and redirects
+
+**Examples**:
+- Development: `http://localhost:8000`
+- Production: `https://www.stratalens.ai`
+
+---
+
+#### PORT
+
+```bash
+PORT=8000
+```
+
+**Required**: No
+
+**Default**: `8000`
+
+**Purpose**: Server port
+
+---
+
+#### HOST
+
+```bash
+HOST=0.0.0.0
+```
+
+**Required**: No
+
+**Default**: `0.0.0.0`
+
+**Purpose**: Server host (0.0.0.0 allows external connections)
+
+---
+
+#### LOG_LEVEL
+
+```bash
+LOG_LEVEL=INFO
+```
+
+**Required**: No
+
+**Default**: `INFO`
+
+**Purpose**: Logging verbosity
+
+**Values**: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
+
+---
+
+### RAG System Configuration
+
+#### RAG_LLM_PROVIDER
+
+```bash
+RAG_LLM_PROVIDER=cerebras
+```
+
+**Required**: No
+
+**Default**: `cerebras`
+
+**Purpose**: Choose LLM provider for RAG responses
+
+**Values**:
+- `cerebras` - Use Cerebras (fast, recommended)
+- `openai` - Use OpenAI GPT models
+- `auto` - Use Cerebras if `CEREBRAS_API_KEY` is set, else OpenAI
+
+---
+
+#### RAG_OPENAI_MAX_TOKENS
+
+```bash
+RAG_OPENAI_MAX_TOKENS=8000
+```
+
+**Required**: No
+
+**Default**: `8000`
+
+**Purpose**: Max completion tokens for OpenAI responses (lower = faster)
+
+---
+
+#### RAG_DEBUG_MODE
+
+```bash
+RAG_DEBUG_MODE=true
+```
+
+**Required**: No
+
+**Default**: `false`
+
+**Purpose**: Enable debug logging including EXPLAIN ANALYZE for database queries
+
+<Tip>
+  Enable this during development to understand query performance and optimize database indexes.
+</Tip>
+
+---
+
+#### RAG_MAX_ITERATIONS
+
+```bash
+RAG_MAX_ITERATIONS=3
+```
+
+**Required**: No
+
+**Default**: `3`
+
+**Purpose**: Maximum iterations for iterative self-improvement in RAG pipeline
+
+---
+
+#### SEC_MAX_ITERATIONS
+
+```bash
+SEC_MAX_ITERATIONS=5
+```
+
+**Required**: No
+
+**Default**: `5`
+
+**Purpose**: Maximum iterations for SEC 10-K filing queries (higher for complex financial analysis)
+
+---
+
+### Feature Flags
+
+#### AUTH_DISABLED
+
+```bash
+AUTH_DISABLED=true
+```
+
+**Required**: No
+
+**Default**: `true`
+
+**Purpose**: Bypass Clerk authentication (development only)
+
+<Warning>
+  **Never set this to `true` in production!** Authentication should always be enabled for production deployments.
+</Warning>
+
+---
+
+#### ENABLE_LOGIN
+
+```bash
+ENABLE_LOGIN=false
+```
+
+**Required**: No
+
+**Default**: `false`
+
+**Purpose**: Enable/disable login endpoint
+
+<Note>
+  This flag is deprecated. Authentication is now handled exclusively through Clerk.
+</Note>
+
+---
+
+#### ENABLE_SELF_SERVE_REGISTRATION
+
+```bash
+ENABLE_SELF_SERVE_REGISTRATION=false
+```
+
+**Required**: No
+
+**Default**: `false`
+
+**Purpose**: Enable/disable self-service user registration
+
+<Note>
+  This flag is deprecated. User registration is now handled through Clerk.
+</Note>
+
+---
+
+#### ENABLE_REGULAR_AUTH
+
+```bash
+ENABLE_REGULAR_AUTH=true
+```
+
+**Required**: No
+
+**Default**: `true`
+
+**Purpose**: Enable regular authentication flow
+
+---
+
+#### ENABLE_PREMIUM_ONBOARDING
+
+```bash
+ENABLE_PREMIUM_ONBOARDING=false
+```
+
+**Required**: No
+
+**Default**: `false`
+
+**Purpose**: Enable premium CSV-based user onboarding
+
+---
+
+### Data Paths (Optional)
+
+<Note>
+  These variables are optional. The application uses sensible defaults if not specified.
+</Note>
+
+```bash
+# Override default data directories (optional)
+DATA_DIR=./data
+TRANSCRIPTS_DIR=./data/transcripts
+EMBEDDINGS_DIR=./data/embeddings
+10K_FILINGS_DIR=./data/10k_filings
+DUCKDB_PATH=./data/duckdb/financial_data_new.duckdb
+```
+
+---
+
+### Legacy Authentication (Deprecated)
+
+<Warning>
+  These variables are kept for backward compatibility during Clerk migration. They will be removed in a future release.
+</Warning>
+
+```bash
+# JWT secret for legacy auth (deprecated)
+JWT_SECRET_KEY=your-secret-key-here-change-in-production
+```
+
+---
+
+## Frontend-Specific Variables
+
+### VITE_API_BASE_URL
+
+```bash
+VITE_API_BASE_URL=
+```
+
+**Required**: No
+
+**Default**: Empty (same-origin requests)
+
+**Purpose**: API base URL for frontend requests
+
+<Note>
+  Leave this **empty** for same-origin requests (recommended for most setups). Only set it if your backend is on a separate domain.
+</Note>
+
+**Examples**:
+- Same domain: Leave empty or set to empty string
+- Separate domain: `https://api.stratalens.ai`
+
+---
+
+## Environment File Template
+
+Here's a complete `.env` template for local development:
+
+```bash
+# ========================================
+# AI/ML API Keys
+# ========================================
+OPENAI_API_KEY=sk-your-openai-api-key-here
+API_NINJAS_KEY=your-api-ninjas-key-here
+CEREBRAS_API_KEY=your-cerebras-api-key-here
+TAVILY_API_KEY=your-tavily-api-key-here
+
+# ========================================
+# Database Configuration
+# ========================================
+DATABASE_URL=postgresql://username:password@localhost:5432/stratalens
+
+# ========================================
+# Application Settings
+# ========================================
+ENVIRONMENT=development
+PORT=8000
+HOST=0.0.0.0
+BASE_URL=http://localhost:8000
+LOG_LEVEL=INFO
+
+# ========================================
+# Clerk Authentication
+# ========================================
+CLERK_SECRET_KEY=sk_test_your-clerk-secret-key
+CLERK_PUBLISHABLE_KEY=pk_test_your-clerk-publishable-key
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_your-clerk-publishable-key
+CLERK_WEBHOOK_SECRET=whsec_your-webhook-secret
+
+# ========================================
+# Feature Flags
+# ========================================
+AUTH_DISABLED=true  # Development only!
+RAG_DEBUG_MODE=true
+
+# ========================================
+# RAG System Configuration
+# ========================================
+RAG_LLM_PROVIDER=cerebras
+RAG_OPENAI_MAX_TOKENS=8000
+RAG_MAX_ITERATIONS=3
+SEC_MAX_ITERATIONS=5
+
+# ========================================
+# External Services (Optional)
+# ========================================
+REDIS_URL=redis://localhost:6379
+LOGFIRE_TOKEN=your-logfire-token-here
+```
+
+---
+
+## Next Steps
+
+- [Complete Local Setup](/development/local-setup)
+- [Set Up the Database](/development/database-setup)
+- [Learn About the RAG System](/agent-system/overview)

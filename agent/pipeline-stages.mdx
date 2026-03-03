@@ -1,0 +1,554 @@
+---
+title: Pipeline Stages
+description: Detailed breakdown of the 6-stage agent execution pipeline
+---
+
+## Overview
+
+The agent executes a **6-stage pipeline** for each question, with strategic parallelization and semantic routing to optimize performance and accuracy.
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    COMPLETE PIPELINE FLOW                                │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+## Stage 1: Setup & Initialization
+
+<Steps>
+  <Step title="Initialize RAG components">
+    - Load search engine (hybrid vector + keyword)
+    - Initialize response generator
+    - Connect to vector database (pgvector)
+  </Step>
+  <Step title="Load configuration">
+    - Answer mode thresholds
+    - LLM provider settings (Cerebras/OpenAI)
+    - Hybrid search weights (70% semantic, 30% keyword)
+  </Step>
+  <Step title="Fetch available quarters">
+    - Query database for available transcript quarters
+    - Per-company quarter availability (not global)
+  </Step>
+</Steps>
+
+```python
+# Internal initialization
+def __init__(self):
+    self.search_engine = SearchEngine()  # Hybrid search
+    self.response_generator = ResponseGenerator()
+    self.sec_service = SECFilingsService()  # 10-K agent
+    self.tavily_service = TavilyService()  # News
+```
+
+## Stage 2: Combined Reasoning + Analysis
+
+**Single LLM call** via `ReasoningPlanner` that performs comprehensive question understanding.
+
+<Accordion title="Analysis Components (Single LLM Call)">
+  ### Extracted Information
+
+  - **Tickers** - Company identifiers (`$AAPL`, `$MSFT`)
+  - **Time references** - Temporal phrases preserved exactly ("Q4 2024", "last 3 quarters", "latest")
+  - **Intent** - What is the user trying to learn?
+  - **Topic** - Main subject (e.g., "cloud revenue growth")
+  - **Question type** - Single company, multiple companies, or comparison
+  - **Answer mode** - `direct` | `standard` | `detailed`
+  - **Validation** - Reject off-topic/invalid questions
+
+  ### Semantic Data Source Routing
+
+  Routes based on **intent**, not keywords:
+
+  ```json
+  {
+    "data_sources": ["earnings_transcripts"],  // or "10k", "news", "hybrid"
+    "needs_latest_news": false,
+    "needs_10k": false
+  }
+  ```
+
+  ### Research Reasoning
+
+  Generates 2-3 sentence research approach:
+
+  ```json
+  {
+    "reasoning": "The user is asking about Microsoft's cloud business strategy and Azure performance. I need to find Azure revenue figures and growth rates (quarterly), management commentary on competitive positioning vs AWS/Google Cloud, margin trends and profitability metrics, and forward guidance for cloud segment."
+  }
+  ```
+
+  This reasoning:
+  - Makes agent thinking transparent
+  - Guides evaluation (did we find what we planned to find?)
+  - Improves answer quality through structured research
+</Accordion>
+
+### Implementation Reference
+
+```python
+# From agent/rag/reasoning_planner.py (ReasoningPlanner)
+analysis = {
+    "reasoning": "2-3 sentence research approach",
+    "tickers": ["AAPL", "MSFT"],
+    "time_refs": ["last 3 quarters"],
+    "topic": "cloud revenue growth",
+    "question_type": "multiple_companies",
+    "data_sources": ["earnings_transcripts", "news"],
+    "answer_mode": "standard",
+    "is_valid": true,
+    "confidence": 0.95
+}
+```
+
+<Note>
+This single LLM call replaces what used to be multiple sequential calls, significantly reducing latency.
+</Note>
+
+## Stage 2.1: Search Planning
+
+**SearchPlanner** converts temporal references into concrete search plans.
+
+<AccordionGroup>
+  <Accordion title="Quarter Resolution (Company-Specific)">
+    Each company gets its own most recent quarters (not global):
+
+    ```python
+    # Database query per company
+    SELECT DISTINCT year, quarter 
+    FROM transcript_chunks 
+    WHERE ticker = %s 
+    ORDER BY year DESC, quarter DESC
+    ```
+
+    **Examples:**
+    - `"latest"` → `get_last_n_quarters_for_company(ticker, 1)`
+    - `"last 3 quarters"` → `get_last_n_quarters_for_company(ticker, 3)`
+    - `"Q4 2024"` → Specific quarter validation
+
+    <Warning>
+    Companies have different fiscal year calendars. Apple's Q4 2024 may not align with Microsoft's Q4 2024.
+    </Warning>
+  </Accordion>
+
+  <Accordion title="Declarative Search Plan">
+    Builds search plan for each data source:
+
+    ```json
+    {
+      "search_plan": {
+        "earnings_transcripts": [
+          {
+            "ticker": "AAPL",
+            "quarters": ["2024_q4", "2025_q1"],
+            "query": "iPhone sales revenue"
+          }
+        ],
+        "10k": [
+          {
+            "ticker": "AAPL",
+            "fiscal_year": 2024
+          }
+        ]
+      },
+      "reasoning": "Searching last 2 quarters for iPhone sales discussion"
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Stage 2.5: News Search
+
+**Conditional execution:** Only if `needs_latest_news=true`
+
+<Steps>
+  <Step title="Query Tavily API">
+    Real-time web search for current events
+
+    ```python
+    class TavilyService:
+        def search_news(self, query: str, max_results: int = 5):
+            # Returns AI-generated summary + articles
+    ```
+  </Step>
+  <Step title="Format with citations">
+    Uses `[N1]`, `[N2]` citation markers
+
+    ```python
+    def format_news_context(self, news_results):
+        """Formats with [N1], [N2] citation markers"""
+    ```
+  </Step>
+  <Step title="Stream to frontend">
+    Event type: `news_search`
+  </Step>
+</Steps>
+
+## Stage 2.6: SEC 10-K Retrieval Agent
+
+**Conditional execution:** Only if `data_source="10k"` or `needs_10k=true`
+
+Invokes specialized retrieval agent for SEC 10-K annual filings.
+
+<Info>
+See [SEC Agent](/agent/sec-agent) for complete documentation of this stage.
+</Info>
+
+### Key Features
+
+<CardGroup cols={2}>
+  <Card title="Planning-Driven" icon="brain">
+    Generates targeted sub-questions for retrieval
+  </Card>
+  <Card title="Section Routing" icon="route">
+    LLM-based routing to Item 1, Item 7, Item 8, etc.
+  </Card>
+  <Card title="Table Selection" icon="table">
+    LLM selects relevant tables from financial statements
+  </Card>
+  <Card title="Iterative Retrieval" icon="arrows-rotate">
+    Up to 5 iterations with self-evaluation
+  </Card>
+</CardGroup>
+
+### Flow Overview
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         10-K SEARCH FLOW (max 5 iterations)                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────┐                                                        │
+│  │ PHASE 0: PLAN   │   Generate sub-questions + search plan                │
+│  │ • Sub-questions │   "What is inventory turnover?" →                     │
+│  │ • Search plan   │     - "What is COGS?" [TABLE]                         │
+│  └────────┬────────┘     - "What is inventory?" [TABLE]                    │
+│           │              - "Inventory valuation?" [TEXT]                   │
+│           ▼                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ PHASE 1: PARALLEL RETRIEVAL                                         │   │
+│  │ ├── Execute ALL searches in parallel (6 workers)                    │   │
+│  │ │   ├── TABLE: "cost of goods sold" → LLM selects tables            │   │
+│  │ │   ├── TABLE: "inventory balance" → LLM selects tables             │   │
+│  │ │   └── TEXT: "inventory valuation" → hybrid search                 │   │
+│  │ └── Deduplicate and combine chunks                                  │   │
+│  └────────┬────────────────────────────────────────────────────────────┘   │
+│           │                                                                 │
+│           ▼                                                                 │
+│  ┌─────────────────┐                                                        │
+│  │ PHASE 2: ANSWER │   Generate answer with ALL retrieved chunks          │
+│  └────────┬────────┘                                                        │
+│           │                                                                 │
+│           ▼                                                                 │
+│  ┌─────────────────┐                                                        │
+│  │ PHASE 3: EVAL   │   If quality >= 90% → DONE                            │
+│  │                 │   Else → Replan and loop back                         │
+│  └─────────────────┘                                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Citation Format
+
+Results formatted with `[10K1]`, `[10K2]` citation markers for source attribution.
+
+## Stage 3: Transcript Search
+
+**Hybrid vector + keyword search** over earnings call transcripts.
+
+<Tabs>
+  <Tab title="Single-Ticker">
+    Direct search with quarter filtering:
+
+    ```python
+    def search_similar_chunks(query, top_k=15, quarter="2024_q4"):
+        # Hybrid search combining:
+        # - Vector search: 70% weight (semantic similarity via pgvector)
+        # - Keyword search: 30% weight (TF-IDF)
+    ```
+
+    **Scoring:**
+    ```
+    final_score = (0.7 × semantic_similarity) + (0.3 × keyword_match)
+    ```
+  </Tab>
+  <Tab title="Multi-Ticker">
+    Parallel search per company:
+
+    ```python
+    # For each ticker:
+    # 1. Rephrase query for company context
+    # 2. Search chunks (parallel execution)
+    # 3. Maintain ticker attribution
+    
+    # Example:
+    Input: "Compare $AAPL and $MSFT revenue"
+    
+    Process:
+    ├── AAPL: "revenue and sales performance" → Search Q4 2024
+    ├── MSFT: "revenue and sales performance" → Search Q4 2024
+    └── Combine with ticker tags for synthesis
+    ```
+  </Tab>
+</Tabs>
+
+### Database Query
+
+<CodeGroup>
+```sql Vector Search (70% weight)
+SELECT chunk_text, ticker, year, quarter,
+       1 - (embedding <=> query_embedding) AS similarity
+FROM transcript_chunks
+WHERE ticker = %s AND quarter = %s
+ORDER BY similarity DESC
+LIMIT 15;
+```
+
+```sql Keyword Search (30% weight)
+-- TF-IDF via PostgreSQL full-text search
+SELECT chunk_text, ticker, year, quarter,
+       ts_rank(to_tsvector(chunk_text), query) AS relevance
+FROM transcript_chunks
+WHERE ticker = %s AND quarter = %s
+ORDER BY relevance DESC
+LIMIT 15;
+```
+</CodeGroup>
+
+## Stage 4: Initial Answer Generation
+
+<Tabs>
+  <Tab title="Single Ticker">
+    ```python
+    def generate_openai_response(
+        question: str,
+        chunks: List[str],
+        reasoning: str,
+        model: str
+    ):
+        """
+        Generates answer with:
+        - Specific numbers and quotes
+        - Citation markers [1], [2]
+        - Period metadata (Q1 2025, FY 2024)
+        """
+    ```
+
+    **Prompt includes:**
+    - Original question
+    - Research reasoning from Stage 2
+    - All retrieved chunks
+    - Citation instructions
+  </Tab>
+  <Tab title="Multiple Tickers">
+    ```python
+    def generate_multi_ticker_response(
+        question: str,
+        ticker_chunks: Dict[str, List],
+        reasoning: str,
+        model: str
+    ):
+        """
+        Synthesis prompt combines:
+        - Results from all companies
+        - Comparative analysis requirements
+        - Trend identification across companies
+        
+        Requirements:
+        • ALWAYS maintain period metadata (Q1 2025, FY 2024)
+        • ALWAYS include ALL financial figures from ALL sources
+        • Show trends and comparisons across companies
+        • Use human-friendly format: "Q1 2025" not "2025_q1"
+        """
+    ```
+  </Tab>
+</Tabs>
+
+## Stage 5: Iterative Improvement
+
+**Self-reflection loop** with configurable depth based on answer mode.
+
+<Accordion title="Iteration Loop Details">
+  ```
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                    ITERATION LOOP                                │
+  │                                                                  │
+  │  ┌──────────────────┐                                           │
+  │  │ Generate Answer  │◄──────────────────────────────────┐       │
+  │  └────────┬─────────┘                                   │       │
+  │           │                                             │       │
+  │           ▼                                             │       │
+  │  ┌──────────────────┐                                   │       │
+  │  │ Evaluate Quality │                                   │       │
+  │  │ • completeness   │                                   │       │
+  │  │ • specificity    │                                   │       │
+  │  │ • accuracy       │                                   │       │
+  │  │ • vs. reasoning  │ ← Checks if reasoning goals met   │       │
+  │  └────────┬─────────┘                                   │       │
+  │           │                                             │       │
+  │           ▼                                             │       │
+  │  ┌──────────────────┐    YES    ┌─────────────────┐    │       │
+  │  │ Confidence < 90% │─────────► │ Search for more │────┘       │
+  │  │ & iterations left│           │ context (tools) │            │
+  │  └────────┬─────────┘           └─────────────────┘            │
+  │           │ NO                                                  │
+  │           ▼                                                     │
+  │     ┌───────────┐                                               │
+  │     │  OUTPUT   │                                               │
+  │     └───────────┘                                               │
+  └─────────────────────────────────────────────────────────────────┘
+  ```
+</Accordion>
+
+### Evaluation Metrics
+
+**Scores (0-100 scale):**
+
+<ResponseField name="completeness_score" type="integer" required>
+  Does the answer fully address the question?
+</ResponseField>
+
+<ResponseField name="specificity_score" type="integer" required>
+  Does it include specific numbers, quotes, and details?
+</ResponseField>
+
+<ResponseField name="accuracy_score" type="integer" required>
+  Is the information factually correct based on sources?
+</ResponseField>
+
+<ResponseField name="clarity_score" type="integer" required>
+  Is the response well-structured and easy to understand?
+</ResponseField>
+
+<ResponseField name="overall_confidence" type="float" required>
+  Weighted combination (0-1 scale)
+</ResponseField>
+
+### Follow-Up Actions
+
+During iteration, the agent can:
+
+<CardGroup cols={2}>
+  <Card title="Generate Keyword Phrases" icon="search">
+    Search-optimized keywords (NOT verbose questions)
+    
+    Example: `"capex guidance 2025 AI allocation"`
+    
+    Not: `"What guidance did they provide for capex..."`
+  </Card>
+  <Card title="Request Transcript Search" icon="file-lines">
+    `needs_transcript_search: true`
+    
+    Searches ALL target quarters in parallel
+  </Card>
+  <Card title="Request News Search" icon="newspaper">
+    `needs_news_search: true`
+    
+    Fetches real-time news updates
+  </Card>
+  <Card title="Evaluate Progress" icon="chart-line">
+    Check if reasoning goals are met
+  </Card>
+</CardGroup>
+
+### Termination Conditions
+
+<Steps>
+  <Step title="Confidence threshold met">
+    `overall_confidence >= threshold` (varies by answer mode: 70-95%)
+  </Step>
+  <Step title="Max iterations reached">
+    2-10 depending on answer mode
+  </Step>
+  <Step title="Agent satisfaction">
+    Agent decides answer is sufficient
+  </Step>
+  <Step title="No follow-ups">
+    No additional keyword phrases generated
+  </Step>
+</Steps>
+
+### Answer Mode Configuration
+
+| Mode | Max Iterations | Confidence Threshold | Use Case |
+|------|---------------|---------------------|----------|
+| `direct` | 2 | 70% | "What was Q4 revenue?" |
+| `standard` | 3 | 80% | "Explain cloud strategy" |
+| `detailed` | 4 | 90% | "Analyze margin trends" |
+| `deep_search` | 10 | 95% | Reserved for future use |
+
+## Stage 6: Final Response Assembly
+
+<Steps>
+  <Step title="Stream final answer">
+    Event type: `result`
+    
+    Includes complete answer with all citations
+  </Step>
+  <Step title="Include source attributions">
+    - Transcript citations: `[1]`, `[2]`
+    - 10-K citations: `[10K1]`, `[10K2]`
+    - News citations: `[N1]`, `[N2]`
+  </Step>
+  <Step title="Return metadata">
+    ```json
+    {
+      "confidence": 0.92,
+      "chunks_used": 28,
+      "iterations": 2,
+      "timing": {
+        "reasoning": 1.2,
+        "retrieval": 3.5,
+        "generation": 2.1,
+        "total": 6.8
+      },
+      "sources": {
+        "earnings_transcripts": 15,
+        "10k": 8,
+        "news": 5
+      }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Performance Optimization
+
+<AccordionGroup>
+  <Accordion title="Parallel Execution">
+    Multiple independent operations run concurrently:
+    
+    - Multi-ticker searches (one per company)
+    - 10-K sub-question searches (6 workers)
+    - Quarter searches (all target quarters)
+    - Follow-up keyword phrase searches
+  </Accordion>
+
+  <Accordion title="Strategic Caching">
+    - Embedding cache for frequent queries
+    - Quarter availability cache (30 min TTL)
+    - LLM response caching for identical questions
+  </Accordion>
+
+  <Accordion title="Early Termination">
+    - Stop iteration when confidence ≥ threshold
+    - 10-K agent stops at 90% quality (avg 2.4 iterations vs max 5)
+    - Avoid unnecessary searches when answer is complete
+  </Accordion>
+
+  <Accordion title="Smart Deduplication">
+    - Deduplicate chunks by citation marker
+    - Avoid retrieving same content multiple times
+    - Merge overlapping context windows
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Iterative Improvement" icon="arrows-rotate" href="/agent/iterative-improvement">
+    Deep dive into self-reflection and evaluation
+  </Card>
+  <Card title="SEC Agent" icon="file-invoice-dollar" href="/agent/sec-agent">
+    Learn about the specialized 10-K retrieval agent
+  </Card>
+</CardGroup>

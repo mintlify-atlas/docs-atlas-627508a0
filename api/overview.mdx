@@ -1,0 +1,133 @@
+---
+title: 'API Overview'
+description: 'Introduction to the Finance Agent API'
+icon: 'book-open'
+---
+
+## Introduction
+
+The Finance Agent API provides comprehensive access to financial data, AI-powered analysis, and earnings transcript search capabilities. The API is built on FastAPI and uses JWT-based authentication.
+
+## Base URL
+
+```
+https://api.financeagent.com
+```
+
+## Authentication
+
+All API endpoints (except public search) require authentication using JWT tokens. See [Authentication](/api/authentication) for details.
+
+```bash
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  https://api.financeagent.com/user/profile
+```
+
+## Core Features
+
+<CardGroup cols={2}>
+  <Card title="Chat" icon="comments" href="/api/chat">
+    AI-powered financial analysis with streaming responses
+  </Card>
+  <Card title="Companies" icon="building" href="/api/companies">
+    Search and retrieve detailed company information
+  </Card>
+  <Card title="Transcripts" icon="file-lines" href="/api/transcripts">
+    Access earnings call transcripts with highlighting
+  </Card>
+  <Card title="Screener" icon="filter" href="/api/screener">
+    Natural language queries for financial data screening
+  </Card>
+</CardGroup>
+
+## Rate Limits
+
+The API implements rate limiting to ensure fair usage:
+
+- **Per minute**: 3 requests (standard users)
+- **Per month**: 20 requests (standard users)
+- **Per month**: 100 requests (admin users)
+
+Rate limit information is returned in response headers:
+
+```
+X-RateLimit-Limit: 20
+X-RateLimit-Remaining: 15
+X-RateLimit-Reset: 2026-04-01T00:00:00
+```
+
+## Response Format
+
+All API responses follow a consistent JSON format:
+
+```json
+{
+  "success": true,
+  "data": {},
+  "message": "Operation completed successfully",
+  "execution_time": 0.123
+}
+```
+
+## Error Handling
+
+Errors are returned with appropriate HTTP status codes and descriptive messages:
+
+```json
+{
+  "success": false,
+  "error": "Rate limit exceeded",
+  "message": "Monthly limit exceeded. Maximum 20 requests per month.",
+  "rate_limit_info": {
+    "limit_type": "month",
+    "limit": 20,
+    "reset_time": "2026-04-01T00:00:00"
+  }
+}
+```
+
+### Common Status Codes
+
+| Code | Description |
+|------|-------------|
+| `200` | Success |
+| `400` | Bad Request - Invalid parameters |
+| `401` | Unauthorized - Missing or invalid token |
+| `403` | Forbidden - Access denied |
+| `404` | Not Found - Resource does not exist |
+| `429` | Too Many Requests - Rate limit exceeded |
+| `500` | Internal Server Error |
+| `503` | Service Unavailable - System not initialized |
+
+## Streaming Responses
+
+Some endpoints support Server-Sent Events (SSE) for real-time streaming:
+
+```bash
+curl -N -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  "https://api.financeagent.com/message/stream-v2"
+```
+
+Streaming events follow the SSE format:
+
+```
+data: {"type": "progress", "message": "Analyzing question..."}
+
+data: {"type": "result", "data": {...}}
+```
+
+## SDKs and Libraries
+
+Official SDKs are available for:
+
+- Python (coming soon)
+- JavaScript/TypeScript (coming soon)
+- Go (coming soon)
+
+## Support
+
+For API support and questions:
+
+- Documentation: [docs.financeagent.com](https://docs.financeagent.com)
+- GitHub: [github.com/financeagent](https://github.com/financeagent)
+- Email: support@financeagent.com

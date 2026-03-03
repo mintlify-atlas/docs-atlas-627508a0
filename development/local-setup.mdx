@@ -1,0 +1,254 @@
+---
+title: Local Development Setup
+description: Complete guide to setting up Finance Agent for local development
+---
+
+## Prerequisites
+
+Before setting up Finance Agent locally, ensure you have the following installed:
+
+- **Python 3.9+** - Required for the backend and agent system
+- **PostgreSQL 12+** - Database with pgvector extension for embeddings
+- **Node.js 16+** - For the React + TypeScript frontend
+- **Git** - For cloning the repository
+
+<Note>
+  Finance Agent uses PostgreSQL with the pgvector extension for hybrid vector + keyword search. Make sure your PostgreSQL installation supports extensions.
+</Note>
+
+## Installation Steps
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/kamathhrishi/stratalensai.git
+    cd finance_agent
+    ```
+  </Step>
+
+  <Step title="Set up Python environment">
+    Create and activate a virtual environment:
+    
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    ```
+  </Step>
+
+  <Step title="Install Python dependencies">
+    ```bash
+    pip install -r requirements.txt
+    ```
+    
+    This installs all required packages including:
+    - FastAPI + Uvicorn for the web server
+    - PostgreSQL drivers (asyncpg, psycopg2-binary)
+    - AI/ML libraries (OpenAI, Cerebras, LangChain, sentence-transformers)
+    - Authentication (PyJWT for Clerk integration)
+    - Redis for caching (optional)
+  </Step>
+
+  <Step title="Configure environment variables">
+    Copy the example environment file and configure it:
+    
+    ```bash
+    cp .env.example .env
+    ```
+    
+    Edit `.env` with your API keys and database credentials. See [Environment Variables](/development/environment-variables) for details.
+    
+    <Warning>
+      Never commit your `.env` file to version control! It contains sensitive API keys and credentials.
+    </Warning>
+  </Step>
+
+  <Step title="Set up the database">
+    Initialize PostgreSQL with the pgvector extension and create required tables.
+    
+    See [Database Setup](/development/database-setup) for detailed instructions.
+  </Step>
+
+  <Step title="Configure application settings">
+    Update these critical settings in your `.env`:
+    
+    ```bash
+    # Server configuration
+    BASE_URL=http://localhost:8000
+    PORT=8000
+    HOST=0.0.0.0
+    ENVIRONMENT=development
+    
+    # Debug mode (optional)
+    RAG_DEBUG_MODE=true
+    
+    # Auth bypass for local development (optional)
+    AUTH_DISABLED=true
+    ```
+  </Step>
+
+  <Step title="(Optional) Ingest sample data">
+    To test the RAG system, ingest sample financial data:
+    
+    ```bash
+    # Download earnings transcripts
+    python agent/rag/data_ingestion/download_transcripts.py
+    
+    # Ingest transcripts for a specific company and date range
+    python agent/rag/data_ingestion/ingest_with_structure.py \
+      --ticker AAPL \
+      --year-start 2020 \
+      --year-end 2025
+    ```
+    
+    <Note>
+      Data ingestion is optional for development. The application will work without data, but RAG queries will return no results.
+    </Note>
+  </Step>
+
+  <Step title="Start the development server">
+    ```bash
+    python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ```
+    
+    The `--reload` flag enables auto-reload on code changes.
+  </Step>
+
+  <Step title="Verify the installation">
+    Open your browser and navigate to:
+    
+    - **Application**: http://localhost:8000
+    - **API Docs (Swagger)**: http://localhost:8000/docs
+    - **API Docs (ReDoc)**: http://localhost:8000/redoc
+    
+    <Note>
+      By default, API documentation is disabled in production. Enable it by setting `ENABLE_DOCS=true` in `.env`.
+    </Note>
+  </Step>
+</Steps>
+
+## Frontend Setup (Optional)
+
+If you're developing the React frontend:
+
+<Steps>
+  <Step title="Navigate to frontend directory">
+    ```bash
+    cd frontend
+    ```
+  </Step>
+
+  <Step title="Install Node dependencies">
+    ```bash
+    npm install
+    ```
+  </Step>
+
+  <Step title="Configure frontend environment">
+    The frontend reads environment variables from the root `.env` file via `envDir: '../'` in `vite.config.ts`.
+    
+    Required variables:
+    ```bash
+    # Clerk authentication (same as backend)
+    VITE_CLERK_PUBLISHABLE_KEY=pk_test_your-clerk-publishable-key
+    
+    # API base URL (optional - defaults to same-origin)
+    VITE_API_BASE_URL=
+    ```
+    
+    <Note>
+      Leave `VITE_API_BASE_URL` empty for same-origin requests. Only set it if the backend is on a separate domain.
+    </Note>
+  </Step>
+
+  <Step title="Start the development server">
+    ```bash
+    npm run dev
+    ```
+    
+    The frontend will run on http://localhost:5173 (Vite default port).
+  </Step>
+</Steps>
+
+## Verification
+
+### Test the API
+
+Test the health endpoint:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Expected response:
+```json
+{
+  "status": "healthy",
+  "version": "5.0.0",
+  "database": "connected"
+}
+```
+
+### Test the RAG Agent
+
+Test the chat endpoint with a streaming query:
+
+```bash
+curl -X POST http://localhost:8000/message/stream-v2 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "What were Apple's Q1 2025 earnings?",
+    "comprehensive_search": true
+  }'
+```
+
+<Note>
+  This requires data to be ingested first. If no data is available, you'll receive a response indicating no results found.
+</Note>
+
+## Common Issues
+
+### Database Connection Failed
+
+If you see database connection errors:
+
+1. Verify PostgreSQL is running: `pg_isready`
+2. Check your `DATABASE_URL` in `.env`
+3. Ensure the database exists: `createdb stratalens`
+4. Verify pgvector extension is installed (see [Database Setup](/development/database-setup))
+
+### Import Errors
+
+If you see Python import errors:
+
+1. Ensure your virtual environment is activated
+2. Reinstall dependencies: `pip install -r requirements.txt`
+3. Check Python version: `python --version` (must be 3.9+)
+
+### API Key Errors
+
+If you see API key errors:
+
+1. Verify all required API keys are set in `.env`
+2. Check for typos in environment variable names
+3. Ensure `.env` is in the project root directory
+
+## Next Steps
+
+- [Configure Environment Variables](/development/environment-variables)
+- [Set Up the Database](/development/database-setup)
+- [Learn About the Agent System](/agent-system/overview)
+- [Explore the API Documentation](/api/overview)
+
+## Development Tips
+
+<Tip>
+  **Enable Debug Mode**: Set `RAG_DEBUG_MODE=true` to see detailed logs including EXPLAIN ANALYZE output for database queries.
+</Tip>
+
+<Tip>
+  **Disable Authentication**: Set `AUTH_DISABLED=true` for local development to bypass Clerk authentication.
+</Tip>
+
+<Tip>
+  **Use Hot Reload**: The `--reload` flag in uvicorn automatically restarts the server when code changes.
+</Tip>

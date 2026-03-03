@@ -1,0 +1,884 @@
+---
+title: SEC 10-K Agent
+description: Specialized retrieval agent for SEC 10-K filings with 91% FinanceBench accuracy
+---
+
+## Overview
+
+The SEC Agent is a **specialized retrieval agent** optimized for extracting information from **SEC 10-K annual filings**. It uses planning-driven parallel retrieval with intelligent section routing and table selection.
+
+<Info>
+**Current scope:** 10-K filings only (annual reports). Support for 10-Q (quarterly) and 8-K (current events) is under development.
+</Info>
+
+## Benchmark Performance
+
+<CardGroup cols={3}>
+  <Card title="Accuracy" icon="bullseye">
+    **91%** on FinanceBench
+    
+    112 10-K questions
+  </Card>
+  <Card title="Speed" icon="gauge-high">
+    **~10 seconds** per question
+    
+    Average response time
+  </Card>
+  <Card title="Iterations" icon="arrows-rotate">
+    **2.4 avg** iterations
+    
+    Out of max 5
+  </Card>
+</CardGroup>
+
+## Key Features
+
+<AccordionGroup>
+  <Accordion title="Planning-Driven Retrieval">
+    Generates **targeted sub-questions** instead of repeating the original question.
+
+    **Why this matters:** Using targeted sub-questions retrieves different, specific information for each information need.
+
+    **Example:**
+    ```
+    Question: "What is AMD's inventory turnover ratio for FY2022?"
+    
+    Sub-questions generated:
+    1. "What is the cost of goods sold (COGS)?"
+    2. "What is the ending inventory balance?"
+    3. "What is the beginning inventory balance?"
+    4. "How is inventory valued and managed?"
+    ```
+  </Accordion>
+
+  <Accordion title="Parallel Execution">
+    Executes multiple searches concurrently using `ThreadPoolExecutor` with 6 workers.
+
+    **Before (Sequential):** ~170s per question
+    **After (Parallel):** ~10s per question
+
+    All sub-question searches run simultaneously, dramatically reducing latency.
+  </Accordion>
+
+  <Accordion title="Dynamic Replanning">
+    Adjusts search strategy based on evaluation feedback.
+
+    **Process:**
+    1. Evaluate answer quality
+    2. Identify missing information
+    3. Generate new targeted searches
+    4. Loop back to retrieval (max 5 iterations)
+
+    **Example:**
+    ```
+    Evaluation says: "Missing prior year inventory for average calculation"
+    ↓
+    New search plan: [{"query": "FY2021 ending inventory", "type": "table"}]
+    ```
+  </Accordion>
+
+  <Accordion title="Early Termination">
+    Stops when confidence ≥ 90% (typically 1-3 iterations).
+
+    **Average:** 2.4 iterations out of max 5
+    
+    Avoids unnecessary searches when answer is already comprehensive.
+  </Accordion>
+
+  <Accordion title="Hybrid Search">
+    Combines semantic + TF-IDF with cross-encoder reranking.
+
+    **Weights:**
+    - Semantic (vector): 70%
+    - TF-IDF (keyword): 30%
+
+    **Reranking:** ms-marco cross-encoder for better precision
+  </Accordion>
+</AccordionGroup>
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                    SMART PARALLEL SEC AGENT FLOW                              │
+│                    (max 5 iterations, typically 1-3)                          │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+                             USER QUESTION
+        "What is AMD's inventory turnover ratio for FY2022?"
+                                   │
+                                   ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 0: INTELLIGENT PLANNING                                                │
+│  ═════════════════════════════                                                │
+│                                                                               │
+│  LLM generates targeted sub-questions (NOT just the original question):      │
+│                                                                               │
+│  {                                                                            │
+│    "sub_questions": [                                                         │
+│      "What is the cost of goods sold (COGS)?",                               │
+│      "What is the ending inventory balance?",                                 │
+│      "What is the beginning inventory balance?",                              │
+│      "How is inventory valued and managed?"                                   │
+│    ],                                                                         │
+│    "search_plan": [                                                           │
+│      {"query": "cost of goods sold COGS", "type": "table", "priority": 1},   │
+│      {"query": "inventory balance", "type": "table", "priority": 1},          │
+│      {"query": "inventory valuation method", "type": "text", "priority": 2}   │
+│    ]                                                                          │
+│  }                                                                            │
+└────────────────────────────────┬─────────────────────────────────────────────┘
+                                 │
+                                 ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 1: PARALLEL MULTI-QUERY RETRIEVAL                                      │
+│  ═══════════════════════════════════════                                      │
+│                                                                               │
+│  ThreadPoolExecutor (6 workers) executes ALL searches concurrently:          │
+│                                                                               │
+│  ┌────────────────────┐ ┌────────────────────┐ ┌────────────────────┐        │
+│  │ SubQ 1: COGS       │ │ SubQ 2: Inventory  │ │ SubQ 3: Valuation  │        │
+│  │ Type: TABLE        │ │ Type: TABLE        │ │ Type: TEXT         │        │
+│  │                    │ │                    │ │                    │        │
+│  │ LLM selects:       │ │ LLM selects:       │ │ Hybrid search:     │        │
+│  │ • Income Statement │ │ • Balance Sheet    │ │ • Semantic 70%     │        │
+│  │                    │ │                    │ │ • TF-IDF 30%       │        │
+│  │                    │ │                    │ │ • Cross-encoder    │        │
+│  └─────────┬──────────┘ └─────────┬──────────┘ └─────────┬──────────┘        │
+│            │                      │                      │                    │
+│            └──────────────────────┼──────────────────────┘                    │
+│                                   │                                           │
+│                                   ▼                                           │
+│                      ┌────────────────────────┐                               │
+│                      │   COMBINE & DEDUPE     │                               │
+│                      │   All retrieved chunks │                               │
+│                      └────────────────────────┘                               │
+└────────────────────────────────┬─────────────────────────────────────────────┘
+                                 │
+                                 ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 2: ANSWER GENERATION                                                   │
+│  ══════════════════════════                                                   │
+│                                                                               │
+│  LLM generates answer using ALL accumulated chunks:                           │
+│  • Address each sub-question                                                  │
+│  • Cite sources as [10K1], [10K2], etc.                                       │
+│  • Calculate derived metrics (e.g., turnover ratio)                           │
+└────────────────────────────────┬─────────────────────────────────────────────┘
+                                 │
+                                 ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 3: QUALITY EVALUATION                                                  │
+│  ═══════════════════════════                                                  │
+│                                                                               │
+│  Evaluate answer quality (0-100 scale):                                       │
+│  • completeness_score: Does it fully answer the question?                     │
+│  • specificity_score: Does it include specific numbers?                       │
+│  • accuracy_score: Is it factually correct?                                   │
+│  • clarity_score: Is it well-structured?                                      │
+│                                                                               │
+│  ┌─────────────────────────────────────────────────────────────────────────┐ │
+│  │ IF quality >= 90%  →  EARLY TERMINATION (return answer)                 │ │
+│  │ IF quality < 90%   →  Continue to PHASE 4 (replanning)                  │ │
+│  └─────────────────────────────────────────────────────────────────────────┘ │
+└────────────────────────────────┬─────────────────────────────────────────────┘
+                                 │ (if quality < 90%)
+                                 ▼
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  PHASE 4: DYNAMIC REPLANNING                                                  │
+│  ═══════════════════════════                                                  │
+│                                                                               │
+│  Based on evaluation.missing_info, generate NEW search queries:               │
+│                                                                               │
+│  Evaluation says: "Missing prior year inventory for average calculation"      │
+│                   │                                                           │
+│                   ▼                                                           │
+│  New search plan: [{"query": "FY2021 ending inventory", "type": "table"}]    │
+│                                                                               │
+│  Loop back to PHASE 1 with new queries (max 5 total iterations)               │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Integration with Main Agent
+
+The main agent uses the SEC agent as a specialized data source tool.
+
+### Invocation Flow
+
+<Steps>
+  <Step title="Semantic routing">
+    Question Analyzer (Stage 2) determines question requires 10-K data:
+
+    ```json
+    {
+      "data_source": "10k",
+      "needs_10k": true
+    }
+    ```
+  </Step>
+  <Step title="SEC agent invocation">
+    Main agent calls SEC agent during Stage 2.6:
+
+    ```python
+    sec_results = await sec_service.search_10k(
+        question=question,
+        ticker=ticker,
+        fiscal_year=fiscal_year
+    )
+    ```
+  </Step>
+  <Step title="Iterative retrieval">
+    SEC agent performs its own iterative retrieval (up to 5 iterations)
+  </Step>
+  <Step title="Format results">
+    Results formatted with `[10K1]`, `[10K2]` citation markers
+  </Step>
+  <Step title="Context flow back">
+    Retrieved context flows back into main agent's answer generation
+  </Step>
+</Steps>
+
+### Why a Separate Agent?
+
+SEC 10-K filings have unique structure requiring specialized retrieval:
+
+- **15 sections** (Item 1, Item 7, Item 8, etc.) with different content types
+- **Complex tables** (financial statements, schedules)
+- **Hierarchical organization** (sections → subsections → paragraphs)
+- **Domain-specific terminology** (GAAP accounting, SEC regulations)
+
+<Info>
+The SEC agent handles section-level routing, LLM-based table selection, and planning-driven sub-question generation optimized for structured financial documents.
+</Info>
+
+## Phase-by-Phase Details
+
+### Phase 0: Intelligent Planning
+
+Generates targeted sub-questions for specific information needs.
+
+<Accordion title="Planning Implementation">
+  ```python
+  def plan_investigation_with_search_strategy(self, question, model):
+      """
+      Input: "What is AMD's inventory turnover ratio?"
+
+      Output:
+      {
+          "sub_questions": [
+              "What is COGS?",
+              "What is ending inventory?",
+              "What is beginning inventory?"
+          ],
+          "search_plan": [
+              {"query": "cost of goods sold", "type": "table"},
+              {"query": "inventory balance", "type": "table"}
+          ]
+      }
+      """
+  ```
+
+  **Key insight:** Sub-questions target *component information* needed to answer the original question, not just rephrasing the question.
+</Accordion>
+
+### Phase 1: Parallel Retrieval
+
+Executes all searches concurrently with 6 workers.
+
+<Tabs>
+  <Tab title="TABLE Queries">
+    **LLM-based table selection** from financial statements:
+
+    ```python
+    def select_tables_by_llm(self, question, available_tables, iteration):
+        """
+        LLM sees all available tables and selects 1-2 most relevant.
+
+        Prioritizes core financial statements:
+        - Income Statement
+        - Balance Sheet
+        - Cash Flow Statement
+
+        Avoids selecting same tables as previous iterations.
+        """
+    ```
+
+    **Available tables:**
+    - Consolidated Statements of Operations (Income Statement)
+    - Consolidated Balance Sheets
+    - Consolidated Statements of Cash Flows
+    - Consolidated Statements of Stockholders' Equity
+    - Various supplemental schedules
+
+    **Selection criteria:**
+    - Semantic match to query
+    - Avoid duplicates from prior iterations
+    - Prefer core statements over schedules
+  </Tab>
+  <Tab title="TEXT Queries">
+    **Hybrid search** with cross-encoder reranking:
+
+    ```python
+    def search_text_chunks(self, query, ticker, fiscal_year, top_k=10):
+        # Step 1: Hybrid search (70% semantic + 30% TF-IDF)
+        chunks = hybrid_search(query, ticker, fiscal_year, top_k=50)
+        
+        # Step 2: Cross-encoder reranking
+        reranked = cross_encoder.rank(query, chunks, top_k=10)
+        
+        return reranked
+    ```
+
+    **Cross-encoder model:** `ms-marco-MiniLM-L-6-v2`
+
+    **Why reranking?** Cross-encoders consider query-document interaction, providing better relevance than bi-encoder similarity alone.
+  </Tab>
+</Tabs>
+
+<Expandable title="Parallel Execution Code">
+  ```python
+  async def parallel_multi_query_retrieval(self, search_plan, model):
+      """
+      Executes searches in parallel:
+      - TABLE queries: LLM selects relevant tables
+      - TEXT queries: Hybrid search + cross-encoder reranking
+
+      Returns deduplicated combined chunks.
+      """
+      with ThreadPoolExecutor(max_workers=6) as executor:
+          futures = [
+              executor.submit(self._execute_search, item)
+              for item in search_plan
+          ]
+          results = [f.result() for f in futures]
+
+      return self._dedupe_and_combine(results)
+  ```
+</Expandable>
+
+### Phase 2: Answer Generation
+
+Uses ALL accumulated chunks to generate comprehensive answer.
+
+<CodeGroup>
+```python Implementation
+def _generate_answer(self, question, sub_questions, chunks, previous_answer):
+    """
+    Generates answer addressing:
+    - Original question
+    - Each sub-question
+    - Calculations where needed
+
+    Citations: [10K1], [10K2], etc.
+    """
+    prompt = f"""
+    Question: {question}
+    
+    Sub-questions to address:
+    {chr(10).join(f'{i+1}. {q}' for i, q in enumerate(sub_questions))}
+    
+    Available information:
+    {format_chunks_with_citations(chunks)}
+    
+    {'Previous answer: ' + previous_answer if previous_answer else ''}
+    
+    Generate a comprehensive answer that:
+    1. Addresses the main question
+    2. Answers each sub-question
+    3. Performs any necessary calculations
+    4. Cites sources as [10K1], [10K2]
+    5. Includes specific numbers and quotes
+    """
+```
+
+```json Example Output
+{
+  "answer": "AMD's inventory turnover ratio for FY2022 was 4.35x. This is calculated from:\n\n- Cost of Goods Sold (COGS): $13.5B [10K1]\n- Average Inventory: ($4.3B + $1.9B) / 2 = $3.1B [10K2]\n- Turnover Ratio: 13.5 / 3.1 = 4.35x\n\nAMD uses the first-in, first-out (FIFO) method for inventory valuation [10K3].",
+  "citations": [
+    {
+      "id": "10K1",
+      "source": "Consolidated Statement of Operations",
+      "text": "Cost of sales: $13,512 million"
+    },
+    {
+      "id": "10K2",
+      "source": "Consolidated Balance Sheet",
+      "text": "Inventories: FY2022 $4,267M, FY2021 $1,955M"
+    },
+    {
+      "id": "10K3",
+      "source": "Item 8 - Note 1 Summary of Significant Accounting Policies",
+      "text": "Inventories are valued at the lower of cost (first-in, first-out method) or net realizable value."
+    }
+  ]
+}
+```
+</CodeGroup>
+
+### Phase 3: Quality Evaluation
+
+Strict evaluation on 0-100 scale with 90% threshold.
+
+<Accordion title="Evaluation Criteria">
+  ```python
+  evaluation = {
+      "completeness_score": 85,  # Does it fully answer the question?
+      "specificity_score": 90,   # Specific numbers and quotes?
+      "accuracy_score": 95,      # Factually correct?
+      "clarity_score": 88,       # Well-structured?
+      "quality_score": 0.89,     # Weighted average
+      "issues": [
+          "Could include year-over-year comparison"
+      ],
+      "missing_info": [
+          "Prior year turnover ratio"
+      ],
+      "suggestions": [
+          "Search for FY2021 COGS and inventory"
+      ]
+  }
+
+  # Early termination if quality >= 0.90
+  if evaluation["quality_score"] >= 0.90:
+      return final_answer
+  ```
+</Accordion>
+
+### Phase 4: Dynamic Replanning
+
+Generates new search queries based on evaluation gaps.
+
+<CodeGroup>
+```python Replanning Logic
+def replan_based_on_evaluation(self, evaluation, current_subquestions):
+    """
+    Input: 
+        evaluation.missing_info = ["prior year inventory"]
+        evaluation.suggestions = ["Search for FY2021 balance sheet"]
+    
+    Output: 
+        [{"query": "FY2021 inventory balance", "type": "table"}]
+    """
+    new_queries = []
+    
+    for missing in evaluation.get("missing_info", []):
+        # Generate targeted search for missing information
+        query = self._create_search_query(missing)
+        new_queries.append(query)
+    
+    return new_queries
+```
+
+```json Example Replanning
+{
+  "iteration": 2,
+  "evaluation_gaps": ["missing prior year inventory"],
+  "new_search_plan": [
+    {
+      "query": "FY2021 ending inventory balance sheet",
+      "type": "table",
+      "priority": 1
+    },
+    {
+      "query": "FY2021 cost of goods sold",
+      "type": "table",
+      "priority": 1
+    }
+  ]
+}
+```
+</CodeGroup>
+
+## Key Design Decisions
+
+<AccordionGroup>
+  <Accordion title="1. Sub-Questions Over Original Question">
+    **Problem:** Iterative approach used same query repeatedly, getting same results.
+
+    **Solution:** Generate targeted sub-questions for specific information needs.
+
+    **Impact:**
+    - Before: Same chunks retrieved each iteration
+    - After: Different, targeted chunks for each sub-question
+    - Result: Better coverage, fewer iterations
+  </Accordion>
+
+  <Accordion title="2. Parallel Over Sequential">
+    **Problem:** Sequential iterations were slow (~170s/question).
+
+    **Solution:** Execute all searches concurrently with ThreadPoolExecutor.
+
+    **Impact:**
+    - Before: 170s average
+    - After: 10s average
+    - Speedup: 17x faster
+  </Accordion>
+
+  <Accordion title="3. Table-First for Numeric Questions">
+    **Problem:** Text search missed structured financial data in tables.
+
+    **Solution:** Prioritize table retrieval for financial questions.
+
+    ```python
+    FINANCIAL_KEYWORDS = [
+        'revenue', 'income', 'profit', 'assets', 'liabilities',
+        'earnings', 'sales', 'expenses', 'equity', 'cash flow',
+        'ratio', 'margin', 'million', 'billion', 'percent', 'eps'
+    ]
+
+    if any(kw in question.lower() for kw in FINANCIAL_KEYWORDS):
+        prioritize_tables = True
+    ```
+
+    **Impact:**
+    - Accuracy on numeric questions: 78% → 94%
+    - Financial statement data properly retrieved
+  </Accordion>
+
+  <Accordion title="4. LLM-Based Table Selection">
+    **Problem:** Retrieving all tables was slow and added noise.
+
+    **Solution:** LLM selects 1-2 most relevant tables per query.
+
+    ```python
+    def select_tables_by_llm(self, question, available_tables, iteration):
+        """
+        LLM sees all available tables and selects 1-2 most relevant.
+
+        Prioritizes core financial statements:
+        - Income Statement
+        - Balance Sheet
+        - Cash Flow Statement
+
+        Avoids selecting same tables as previous iterations.
+        """
+    ```
+
+    **Impact:**
+    - Precision: Higher relevance, less noise
+    - Speed: Fewer tokens to process
+    - Iterations: Better table diversity across iterations
+  </Accordion>
+
+  <Accordion title="5. Cross-Encoder Reranking">
+    **Problem:** Hybrid search alone sometimes ranked less relevant chunks higher.
+
+    **Solution:** Rerank top-K chunks using cross-encoder.
+
+    ```python
+    def rerank_chunks(self, query, chunks, top_k=10):
+        """
+        Uses cross-encoder (ms-marco-MiniLM-L-6-v2) to rerank
+        hybrid search results for better precision.
+        """
+        scores = cross_encoder.predict(
+            [(query, chunk.text) for chunk in chunks]
+        )
+        reranked = sorted(zip(chunks, scores), key=lambda x: x[1], reverse=True)
+        return [chunk for chunk, _ in reranked[:top_k]]
+    ```
+
+    **Impact:**
+    - Relevance: 12% improvement in precision@10
+    - Reduces evaluation iteration due to better initial retrieval
+  </Accordion>
+</AccordionGroup>
+
+## Database Schema
+
+<Tabs>
+  <Tab title="ten_k_chunks">
+    ```sql
+    CREATE TABLE ten_k_chunks (
+        id SERIAL PRIMARY KEY,
+        ticker VARCHAR(10) NOT NULL,
+        fiscal_year INTEGER NOT NULL,
+        sec_section VARCHAR(20),        -- 'item_1', 'item_7', 'item_8', etc.
+        sec_section_title TEXT,         -- 'Business', 'MD&A', 'Financial Statements'
+        chunk_text TEXT NOT NULL,
+        chunk_type VARCHAR(20),         -- 'text' or 'table'
+        embedding VECTOR(384),          -- all-MiniLM-L6-v2
+        is_financial_statement BOOLEAN DEFAULT FALSE,
+        statement_type VARCHAR(50),
+        path_string TEXT,
+        metadata JSONB
+    );
+
+    CREATE INDEX idx_ten_k_chunks_ticker_year 
+        ON ten_k_chunks(ticker, fiscal_year);
+    CREATE INDEX idx_ten_k_chunks_embedding 
+        ON ten_k_chunks USING ivfflat (embedding vector_cosine_ops);
+    ```
+  </Tab>
+  <Tab title="ten_k_tables">
+    ```sql
+    CREATE TABLE ten_k_tables (
+        id SERIAL PRIMARY KEY,
+        ticker VARCHAR(10) NOT NULL,
+        fiscal_year INTEGER NOT NULL,
+        sec_section VARCHAR(20),
+        sec_section_title TEXT,
+        content TEXT,                   -- Table content as markdown
+        statement_type VARCHAR(50),     -- 'income_statement', 'balance_sheet', 'cash_flow'
+        is_financial_statement BOOLEAN DEFAULT FALSE,
+        path_string TEXT,
+        metadata JSONB
+    );
+
+    CREATE INDEX idx_ten_k_tables_ticker_year 
+        ON ten_k_tables(ticker, fiscal_year);
+    CREATE INDEX idx_ten_k_tables_statement_type 
+        ON ten_k_tables(statement_type);
+    ```
+  </Tab>
+</Tabs>
+
+## Practical Examples
+
+<Tabs>
+  <Tab title="Example 1: Inventory Turnover">
+    **Question:** "What is AMD's inventory turnover ratio for FY2022?"
+
+    **Type:** Numeric calculation requiring multiple data points
+
+    ---
+
+    **PHASE 0: PLANNING**
+    ```json
+    {
+      "sub_questions": [
+        "What is cost of goods sold (COGS)?",
+        "What is ending inventory balance?",
+        "What is beginning inventory balance?"
+      ],
+      "search_plan": [
+        {"query": "cost of goods sold COGS", "type": "table"},
+        {"query": "inventory balance assets", "type": "table"}
+      ]
+    }
+    ```
+
+    **PHASE 1: PARALLEL RETRIEVAL**
+    ```
+    ├── TABLE: COGS → LLM selects Income Statement
+    ├── TABLE: Inventory → LLM selects Balance Sheet
+    └── Combines both tables
+    ```
+
+    **PHASE 2: ANSWER GENERATION**
+    ```
+    "AMD's inventory turnover ratio for FY2022:
+     - COGS: $13.5B [10K1]
+     - Avg Inventory: ($4.3B + $1.9B) / 2 = $3.1B [10K2]
+     - Turnover: 13.5 / 3.1 = 4.35x"
+    ```
+
+    **PHASE 3: EVALUATION**
+    ```json
+    {
+      "quality_score": 0.92,
+      "completeness_score": 95,
+      "specificity_score": 100,
+      "accuracy_score": 95,
+      "clarity_score": 90
+    }
+    ```
+    `0.92 >= 0.90` → **EARLY TERMINATION**
+
+    **Result:** 1 iteration, ~8 seconds
+  </Tab>
+  <Tab title="Example 2: Risk Factors">
+    **Question:** "What are Tesla's main risk factors?"
+
+    **Type:** Qualitative information from Item 1A
+
+    ---
+
+    **PHASE 0: PLANNING**
+    ```json
+    {
+      "sub_questions": [
+        "What operational risks does Tesla face?",
+        "What regulatory/legal risks exist?",
+        "What financial/market risks are mentioned?"
+      ],
+      "search_plan": [
+        {"query": "operational risks manufacturing", "type": "text"},
+        {"query": "regulatory legal risks", "type": "text"},
+        {"query": "market competition risks", "type": "text"}
+      ]
+    }
+    ```
+
+    **PHASE 1: PARALLEL RETRIEVAL**
+    ```
+    ├── TEXT: Operational → Item 1A chunks
+    ├── TEXT: Regulatory → Item 1A chunks
+    └── TEXT: Market → Item 1A chunks
+    ```
+
+    **PHASE 2: ANSWER GENERATION**
+    ```
+    "Tesla's main risk factors include:
+     1. Supply chain dependencies [10K1]
+     2. Regulatory uncertainty [10K2]
+     3. Competition from legacy automakers [10K3]..."
+    ```
+
+    **PHASE 3: EVALUATION**
+    ```json
+    {
+      "quality_score": 0.88,
+      "issues": ["Could include specific examples"],
+      "missing_info": ["Concrete examples of each risk"]
+    }
+    ```
+    `0.88 < 0.90` → **Continue**
+
+    **PHASE 4: REPLANNING**
+    ```json
+    {
+      "new_search_plan": [
+        {"query": "risk factor examples incidents", "type": "text"}
+      ]
+    }
+    ```
+
+    **ITERATION 2:** Retrieves specific examples
+    
+    `quality_score = 0.93 >= 0.90` → **EARLY TERMINATION**
+
+    **Result:** 2 iterations, ~12 seconds
+  </Tab>
+  <Tab title="Example 3: Multi-Part Question">
+    **Question:** "What was Microsoft's operating margin and why did it change?"
+
+    **Type:** Numeric + qualitative explanation
+
+    ---
+
+    **PHASE 0: PLANNING**
+    ```json
+    {
+      "sub_questions": [
+        "What was the operating income?",
+        "What was total revenue?",
+        "What factors affected operating expenses?",
+        "How did margin compare to prior year?"
+      ],
+      "search_plan": [
+        {"query": "operating income revenue", "type": "table"},
+        {"query": "operating expenses changes", "type": "text"},
+        {"query": "margin drivers cost efficiency", "type": "text"}
+      ]
+    }
+    ```
+
+    **PHASE 1:** Parallel retrieval (all concurrent)
+    
+    **PHASE 2:** Answer with numbers + explanation
+    
+    **PHASE 3:** Evaluation → 0.85 (missing YoY comparison)
+    
+    **PHASE 4:** Replan → add prior year search
+
+    **ITERATION 2:** Add prior year data
+    
+    `quality_score = 0.91` → **EARLY TERMINATION**
+
+    **Result:** 2 iterations, ~14 seconds
+  </Tab>
+</Tabs>
+
+## Configuration
+
+### Environment Variables
+
+```bash
+CEREBRAS_API_KEY=...         # Primary LLM (Qwen-3-235B)
+OPENAI_API_KEY=...           # Fallback LLM
+DATABASE_URL=postgresql://...# 10-K chunks and tables
+```
+
+### Agent Settings
+
+```python
+# In SmartParallelSECFilingsService
+max_iterations = 5           # Maximum iterations per question
+confidence_threshold = 0.90  # Quality score for early termination
+parallel_workers = 6         # ThreadPoolExecutor workers
+
+# Hybrid search weights
+semantic_weight = 0.70
+tfidf_weight = 0.30
+```
+
+## Performance Characteristics
+
+### Timing Breakdown
+
+```
+Per-question timing:
+├── Phase 0 (Planning):     ~1.5s
+├── Phase 1 (Retrieval):    ~3.5s (parallel)
+├── Phase 2 (Answer):       ~2.5s
+├── Phase 3 (Evaluation):   ~1.5s
+└── Total (1 iteration):    ~9s
+
+With 2.4 avg iterations: ~10.7s total
+```
+
+### Why It's Fast
+
+<CardGroup cols={3}>
+  <Card title="Parallel Execution" icon="arrows-split-up-and-left">
+    6 searches run concurrently
+    
+    17x speedup vs sequential
+  </Card>
+  <Card title="Targeted Queries" icon="bullseye-arrow">
+    Each sub-question retrieves different, specific information
+    
+    Better initial retrieval
+  </Card>
+  <Card title="Early Termination" icon="circle-stop">
+    Avg 2.4 iterations vs max 5
+    
+    65% early termination rate
+  </Card>
+</CardGroup>
+
+## Version in Use
+
+Loaded in `agent/rag/rag_agent.py`:
+
+```python
+from .sec_filings_service_smart_parallel import SmartParallelSECFilingsService as SECFilingsService
+```
+
+<Note>
+This is the production version. Earlier sequential versions (`sec_filings_service.py`) are deprecated.
+</Note>
+
+## Limitations
+
+<Warning>
+- **10-K only** - No 10-Q (quarterly) or 8-K (current events) support yet
+- **2024-25 filings** - Limited historical coverage currently
+- **Table parsing** - Complex multi-level tables may have formatting issues
+- **Cross-filing queries** - Can't compare across multiple years in single query
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Overview" icon="diagram-project" href="/agent/overview">
+    Learn how the SEC agent fits into the main agent system
+  </Card>
+  <Card title="Pipeline Stages" icon="layer-group" href="/agent/pipeline-stages">
+    Understand Stage 2.6 where SEC agent is invoked
+  </Card>
+  <Card title="Iterative Improvement" icon="arrows-rotate" href="/agent/iterative-improvement">
+    See how self-reflection works in the main agent
+  </Card>
+</CardGroup>

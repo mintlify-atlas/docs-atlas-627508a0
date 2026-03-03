@@ -1,0 +1,413 @@
+---
+title: "Database Schema"
+description: "PostgreSQL schema for earnings transcripts and SEC 10-K filings"
+icon: "database"
+---
+
+## Overview
+
+Finance Agent uses **PostgreSQL with pgvector** for storing embeddings and metadata, while full documents are stored in **Railway S3**. This hybrid approach balances search performance with cost-effective storage.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     PostgreSQL + pgvector                   │
+│  • Embeddings (384-dim vectors)                             │
+│  • Metadata (ticker, year, quarter, section)                │
+│  • Chunk text (truncated for search context)                │
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│                       Railway S3                            │
+│  • Full transcript text                                     │
+│  • Complete SEC filing documents                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Schema Tables
+
+Finance Agent maintains three core tables:
+
+1. **`transcript_chunks`** - Earnings call transcript embeddings
+2. **`ten_k_chunks`** - SEC 10-K filing text embeddings
+3. **`ten_k_tables`** - SEC 10-K extracted financial tables
+
+---
+
+## Transcript Chunks
+
+### Schema: `transcript_chunks`
+
+Stores chunked earnings call transcripts with vector embeddings for semantic search.
+
+```sql
+CREATE TABLE transcript_chunks (
+    id SERIAL PRIMARY KEY,
+    chunk_text TEXT NOT NULL,              -- Transcript chunk (1000 chars, 200 overlap)
+    embedding VECTOR(384),                  -- all-MiniLM-L6-v2 embedding
+    ticker VARCHAR(10) NOT NULL,            -- Company ticker (e.g., "AAPL")
+    year INTEGER NOT NULL,                  -- Year (e.g., 2024)
+    quarter INTEGER NOT NULL,               -- Quarter (1-4)
+    chunk_index INTEGER,                    -- Position in transcript
+    speaker VARCHAR(255),                   -- Speaker name (if available)
+    metadata JSONB,                         -- Additional metadata
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Indexes for performance
+CREATE INDEX idx_transcript_ticker ON transcript_chunks(ticker);
+CREATE INDEX idx_transcript_year_quarter ON transcript_chunks(year, quarter);
+CREATE INDEX idx_transcript_embedding ON transcript_chunks USING ivfflat (embedding vector_cosine_ops);
+```
+
+### Key Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `chunk_text` | TEXT | Transcript segment (max 1000 characters, 200 overlap) |
+| `embedding` | VECTOR(384) | Dense vector from `all-MiniLM-L6-v2` model |
+| `ticker` | VARCHAR(10) | Company stock ticker (e.g., "AAPL", "MSFT") |
+| `year` | INTEGER | Calendar year of earnings call (e.g., 2024) |
+| `quarter` | INTEGER | Fiscal quarter (1-4) |
+| `chunk_index` | INTEGER | Position in original transcript for ordering |
+| `speaker` | VARCHAR(255) | Speaker name (CEO, CFO, analyst) |
+| `metadata` | JSONB | Flexible JSON storage for additional context |
+
+### Chunking Strategy
+
+- **Chunk Size:** 1000 characters
+- **Overlap:** 200 characters between consecutive chunks
+- **Embedding Model:** `all-MiniLM-L6-v2` (384 dimensions)
+- **Purpose:** Balance between semantic coherence and search granularity
+
+### Search Strategy
+
+**Hybrid Search** (70% vector + 30% keyword):
+
+```python
+# From search_engine.py
+def search_similar_chunks(query, top_k, quarter):
+    """
+    Combines:
+    - Vector search: 70% weight (semantic similarity via pgvector)
+    - Keyword search: 30% weight (TF-IDF for exact terms)
+    """
+```
+
+**Query Pattern:**
+```sql
+-- Vector similarity search with quarter filtering
+SELECT chunk_text, ticker, year, quarter
+FROM transcript_chunks
+WHERE ticker = %s 
+  AND year = %s 
+  AND quarter = %s
+ORDER BY embedding <=> %s  -- Cosine similarity
+LIMIT 15;
+```
+
+### Data Coverage
+
+- **Time Range:** 2020-2025
+- **Companies:** S&P 500 constituents + major tech/finance companies
+- **Source:** Public earnings call transcripts
+
+---
+
+## SEC 10-K Chunks
+
+### Schema: `ten_k_chunks`
+
+Stores chunked SEC 10-K annual filing text with section metadata for targeted retrieval.
+
+```sql
+CREATE TABLE ten_k_chunks (
+    id SERIAL PRIMARY KEY,
+    chunk_text TEXT NOT NULL,              -- Filing chunk (variable size)
+    embedding VECTOR(384),                  -- all-MiniLM-L6-v2 embedding
+    ticker VARCHAR(10) NOT NULL,            -- Company ticker
+    fiscal_year INTEGER NOT NULL,           -- Fiscal year of filing
+    sec_section VARCHAR(50),                -- Section identifier (item_1, item_7, etc.)
+    sec_section_title VARCHAR(255),         -- Human-readable section name
+    is_financial_statement BOOLEAN,         -- True if chunk is from financial statements
+    chunk_index INTEGER,                    -- Position within section
+    metadata JSONB,                         -- Additional context
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_10k_ticker_year ON ten_k_chunks(ticker, fiscal_year);
+CREATE INDEX idx_10k_section ON ten_k_chunks(sec_section);
+CREATE INDEX idx_10k_embedding ON ten_k_chunks USING ivfflat (embedding vector_cosine_ops);
+```
+
+### Key Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `chunk_text` | TEXT | SEC filing text segment |
+| `embedding` | VECTOR(384) | Dense vector from `all-MiniLM-L6-v2` |
+| `ticker` | VARCHAR(10) | Company stock ticker |
+| `fiscal_year` | INTEGER | Fiscal year of 10-K filing (e.g., 2024) |
+| `sec_section` | VARCHAR(50) | Section identifier (see SEC Sections below) |
+| `sec_section_title` | VARCHAR(255) | Human-readable section name |
+| `is_financial_statement` | BOOLEAN | Indicates if chunk contains financial data |
+| `chunk_index` | INTEGER | Order within section |
+| `metadata` | JSONB | Additional filing metadata |
+
+### SEC 10-K Sections
+
+The SEC 10-K agent routes queries to specific sections based on question intent:
+
+| Section ID | Section Title | Content |
+|------------|---------------|----------|
+| `item_1` | Business | Company description, products, services, operations |
+| `item_1a` | Risk Factors | Business risks, legal, regulatory, market risks |
+| `item_1b` | Unresolved Staff Comments | SEC comments (usually empty) |
+| `item_2` | Properties | Real estate, facilities, locations |
+| `item_3` | Legal Proceedings | Lawsuits, regulatory actions |
+| `item_4` | Mine Safety Disclosures | Mining operations (rarely applicable) |
+| `item_5` | Market for Registrant's Common Equity | Stock performance, dividends |
+| `item_6` | Reserved | (Previously "Selected Financial Data", now deprecated) |
+| `item_7` | Management's Discussion and Analysis (MD&A) | Financial results, trends, outlook |
+| `item_7a` | Quantitative and Qualitative Disclosures About Market Risk | Market risk exposures |
+| `item_8` | Financial Statements and Supplementary Data | Balance sheet, income statement, cash flow |
+| `item_9` | Changes in and Disagreements With Accountants | Auditor changes (rare) |
+| `item_9a` | Controls and Procedures | Internal controls |
+| `item_9b` | Other Information | Miscellaneous disclosures |
+| `item_10` | Directors, Executive Officers and Corporate Governance | Board, executives, governance |
+| `item_11` | Executive Compensation | CEO/executive pay, stock awards |
+| `item_12` | Security Ownership of Certain Beneficial Owners | Major shareholders |
+| `item_13` | Certain Relationships and Related Transactions | Related-party transactions |
+| `item_14` | Principal Accounting Fees and Services | Auditor fees |
+| `item_15` | Exhibits, Financial Statement Schedules | Exhibits list |
+
+### SEC Agent Retrieval Strategy
+
+The SEC 10-K agent uses **planning-driven retrieval** with **section routing**:
+
+1. **Planning Phase:** Generate sub-questions for targeted retrieval
+2. **Section Routing:** LLM determines relevant sections (e.g., Item 11 for executive compensation)
+3. **Parallel Search:** Execute searches across sections concurrently
+4. **Table Selection:** LLM selects relevant financial tables from `ten_k_tables`
+5. **Hybrid Search:** Combine TF-IDF + semantic search with cross-encoder reranking
+6. **Iterative Improvement:** Re-plan and search if answer quality < 90%
+
+**Benchmark:** 91% accuracy on [FinanceBench](https://github.com/patronus-ai/financebench) (112 questions), ~10s per question
+
+### Data Coverage
+
+- **Time Range:** 2018-2025 (currently 2024-25 loaded)
+- **Filing Type:** 10-K only (10-Q and 8-K coming soon)
+- **Companies:** Major public companies
+
+---
+
+## SEC 10-K Tables
+
+### Schema: `ten_k_tables`
+
+Stores extracted financial tables from SEC 10-K filings in structured JSONB format.
+
+```sql
+CREATE TABLE ten_k_tables (
+    id SERIAL PRIMARY KEY,
+    ticker VARCHAR(10) NOT NULL,
+    fiscal_year INTEGER NOT NULL,
+    table_index INTEGER,                   -- Position in filing
+    content JSONB NOT NULL,                -- Structured table data
+    statement_type VARCHAR(100),           -- income_statement, balance_sheet, cash_flow
+    is_financial_statement BOOLEAN,        -- True for core financial statements
+    sec_section VARCHAR(50),               -- Section where table appears
+    metadata JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Indexes
+CREATE INDEX idx_tables_ticker_year ON ten_k_tables(ticker, fiscal_year);
+CREATE INDEX idx_tables_statement_type ON ten_k_tables(statement_type);
+CREATE INDEX idx_tables_content ON ten_k_tables USING gin (content);
+```
+
+### Key Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ticker` | VARCHAR(10) | Company stock ticker |
+| `fiscal_year` | INTEGER | Fiscal year of 10-K filing |
+| `table_index` | INTEGER | Position in original document |
+| `content` | JSONB | Structured table data (headers + rows) |
+| `statement_type` | VARCHAR(100) | Financial statement type (see below) |
+| `is_financial_statement` | BOOLEAN | True for core statements (Item 8) |
+| `sec_section` | VARCHAR(50) | Source section (usually `item_8`) |
+| `metadata` | JSONB | Additional table metadata |
+
+### Statement Types
+
+| Type | Description |
+|------|-------------|
+| `income_statement` | Revenue, expenses, net income |
+| `balance_sheet` | Assets, liabilities, shareholders' equity |
+| `cash_flow` | Operating, investing, financing cash flows |
+| `shareholders_equity` | Changes in equity accounts |
+| `segment_reporting` | Business segment breakdowns |
+| `other` | Supplementary tables |
+
+### Table Selection Process
+
+The SEC agent uses **LLM-based table selection** when questions require financial data:
+
+```python
+# From sec_filings_service_smart_parallel.py
+def select_relevant_tables(question, ticker, year):
+    """
+    1. Retrieve all tables for company/year
+    2. LLM analyzes question and table metadata
+    3. Returns only relevant tables (e.g., "cost of goods sold" → income_statement)
+    4. Reduces context size and improves accuracy
+    """
+```
+
+**Example:**
+- **Question:** "What was Apple's inventory in 2023?"
+- **Selected Tables:** Balance sheet tables containing "inventory" line items
+- **Result:** Precise extraction without irrelevant tables
+
+---
+
+## Vector Search Configuration
+
+### pgvector Setup
+
+```sql
+-- Enable pgvector extension
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Create IVFFlat index for fast approximate nearest neighbor search
+-- Lists parameter: sqrt(total_rows) is a good heuristic
+CREATE INDEX idx_transcript_embedding 
+ON transcript_chunks 
+USING ivfflat (embedding vector_cosine_ops) 
+WITH (lists = 100);
+
+CREATE INDEX idx_10k_embedding 
+ON ten_k_chunks 
+USING ivfflat (embedding vector_cosine_ops) 
+WITH (lists = 100);
+```
+
+### Distance Metrics
+
+- **Cosine Similarity** (`<=>`) - Default for semantic search
+- **L2 Distance** (`<->`) - Euclidean distance (alternative)
+- **Inner Product** (`<#>`) - Dot product (for normalized vectors)
+
+Finance Agent uses **cosine similarity** for all vector searches.
+
+### Embedding Model
+
+**Model:** `all-MiniLM-L6-v2` (via `sentence-transformers`)
+- **Dimensions:** 384
+- **Speed:** ~5ms per encoding on CPU
+- **Quality:** Strong performance on semantic similarity tasks
+- **License:** Apache 2.0 (open source)
+
+---
+
+## Data Ingestion
+
+For detailed instructions on populating these tables, see:
+- **[agent/rag/data_ingestion/README.md](https://github.com/kamathhrishi/stratalensai/blob/main/agent/rag/data_ingestion/README.md)** - Complete ingestion pipeline documentation
+
+**Quick Overview:**
+
+```bash
+# Download earnings transcripts
+python agent/rag/data_ingestion/download_transcripts.py
+
+# Ingest transcripts into database
+python agent/rag/data_ingestion/ingest_with_structure.py \
+  --ticker AAPL \
+  --year-start 2020 \
+  --year-end 2025
+
+# Ingest SEC 10-K filings
+python agent/rag/data_ingestion/ingest_10k.py \
+  --ticker AAPL \
+  --year 2024
+```
+
+---
+
+## Query Examples
+
+### Hybrid Transcript Search
+
+```python
+# From search_engine.py
+results = search_similar_chunks(
+    query="iPhone revenue growth",
+    top_k=15,
+    ticker="AAPL",
+    year=2024,
+    quarter=4
+)
+
+# Returns:
+# [
+#   {
+#     "chunk_text": "iPhone revenue grew 8% year-over-year...",
+#     "ticker": "AAPL",
+#     "year": 2024,
+#     "quarter": 4,
+#     "similarity_score": 0.89
+#   },
+#   ...
+# ]
+```
+
+### SEC Section-Targeted Search
+
+```python
+# From sec_filings_service_smart_parallel.py
+results = search_10k_chunks(
+    query="executive compensation stock awards",
+    ticker="AAPL",
+    fiscal_year=2023,
+    sections=["item_11"]  # Executive Compensation section only
+)
+```
+
+### Financial Table Retrieval
+
+```sql
+-- Get balance sheet tables for Apple 2023
+SELECT content
+FROM ten_k_tables
+WHERE ticker = 'AAPL'
+  AND fiscal_year = 2023
+  AND statement_type = 'balance_sheet'
+  AND is_financial_statement = true;
+```
+
+---
+
+## Performance Considerations
+
+1. **Index Maintenance:** Rebuild IVFFlat indexes after bulk inserts
+2. **Connection Pooling:** Use `asyncpg` with connection pool (10-20 connections)
+3. **Query Limits:** Cap `top_k` at 50 to prevent slow queries
+4. **JSONB Indexes:** GIN indexes on `metadata` and `content` for fast JSON queries
+5. **Partitioning:** Consider table partitioning by year for very large datasets
+
+---
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Project Structure" icon="folder-tree" href="/development/project-structure">
+    Understand the codebase organization
+  </Card>
+  <Card title="Tech Stack" icon="layer-group" href="/development/tech-stack">
+    Learn about the technologies powering Finance Agent
+  </Card>
+</CardGroup>

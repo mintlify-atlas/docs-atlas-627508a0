@@ -1,0 +1,332 @@
+---
+title: 'Transcripts'
+description: 'Access earnings call transcripts with highlighting'
+icon: 'file-lines'
+---
+
+## Overview
+
+The Transcripts API provides access to complete earnings call transcripts stored in S3. Metadata is stored in PostgreSQL for fast querying, while full transcript text is retrieved from cloud storage.
+
+## Get Transcript
+
+Retrieve a complete earnings call transcript.
+
+**Endpoint**: `GET /transcript/{ticker}/{year}/{quarter}`
+
+**Authentication**: Optional (works without authentication)
+
+```bash cURL
+curl https://api.financeagent.com/transcript/TSLA/2024/4
+```
+
+### Path Parameters
+
+<ParamField path="ticker" type="string" required>
+  Company ticker symbol (e.g., "TSLA", "AAPL")
+</ParamField>
+
+<ParamField path="year" type="integer" required>
+  Fiscal year (e.g., 2024)
+</ParamField>
+
+<ParamField path="quarter" type="integer" required>
+  Fiscal quarter (1, 2, 3, or 4)
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Whether the transcript was found
+</ResponseField>
+
+<ResponseField name="ticker" type="string">
+  Company ticker symbol
+</ResponseField>
+
+<ResponseField name="company_name" type="string">
+  Company name
+</ResponseField>
+
+<ResponseField name="year" type="integer">
+  Fiscal year
+</ResponseField>
+
+<ResponseField name="quarter" type="integer">
+  Fiscal quarter
+</ResponseField>
+
+<ResponseField name="date" type="string">
+  Earnings call date
+</ResponseField>
+
+<ResponseField name="transcript_text" type="string">
+  Complete transcript text
+</ResponseField>
+
+<ResponseField name="transcript_length" type="integer">
+  Length of transcript in characters
+</ResponseField>
+
+<ResponseField name="source" type="string">
+  Data source (always "bucket" for S3)
+</ResponseField>
+
+<ResponseField name="metadata" type="object">
+  Additional metadata about the transcript
+</ResponseField>
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "ticker": "TSLA",
+  "company_name": "Tesla Inc.",
+  "year": 2024,
+  "quarter": 4,
+  "date": "2024-01-24",
+  "transcript_text": "Operator: Good day, and thank you for standing by...\n\nElon Musk: Thanks for joining us today...",
+  "transcript_length": 45232,
+  "source": "bucket",
+  "metadata": {
+    "duration": "60 minutes",
+    "participants": ["Elon Musk", "Zachary Kirkhorn"]
+  }
+}
+```
+
+## Get Transcript with Highlights
+
+Retrieve a transcript with specific sections highlighted based on relevant chunks.
+
+**Endpoint**: `POST /transcript/with-highlights`
+
+**Authentication**: Optional
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.financeagent.com/transcript/with-highlights \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ticker": "AAPL",
+    "year": 2024,
+    "quarter": 3,
+    "relevant_chunks": [
+      {
+        "chunk_id": "chunk-42",
+        "char_offset": 15200,
+        "chunk_length": 800,
+        "chunk_text": "Our Services revenue grew 14% year over year..."
+      }
+    ]
+  }'
+```
+
+```python Python
+import requests
+
+url = "https://api.financeagent.com/transcript/with-highlights"
+payload = {
+    "ticker": "AAPL",
+    "year": 2024,
+    "quarter": 3,
+    "relevant_chunks": [
+        {
+            "chunk_id": "chunk-42",
+            "char_offset": 15200,
+            "chunk_length": 800,
+            "chunk_text": "Our Services revenue grew 14% year over year..."
+        }
+    ]
+}
+
+response = requests.post(url, json=payload)
+print(response.json())
+```
+</CodeGroup>
+
+### Request Body
+
+<ParamField body="ticker" type="string" required>
+  Company ticker symbol
+</ParamField>
+
+<ParamField body="year" type="integer" required>
+  Fiscal year
+</ParamField>
+
+<ParamField body="quarter" type="integer" required>
+  Fiscal quarter (1-4)
+</ParamField>
+
+<ParamField body="relevant_chunks" type="array" required>
+  Array of relevant chunks to highlight
+  <Expandable title="chunk object">
+    <ParamField body="chunk_id" type="string">
+      Unique chunk identifier
+    </ParamField>
+    <ParamField body="char_offset" type="integer">
+      Character offset in the transcript (preferred for accurate positioning)
+    </ParamField>
+    <ParamField body="chunk_length" type="integer">
+      Length of the chunk in characters
+    </ParamField>
+    <ParamField body="chunk_text" type="string">
+      Text content of the chunk (used as fallback for text search)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Request status
+</ResponseField>
+
+<ResponseField name="transcript_text" type="string">
+  Original transcript text
+</ResponseField>
+
+<ResponseField name="highlighted_transcript" type="string">
+  Transcript with HTML `<mark>` tags around highlighted sections
+</ResponseField>
+
+<ResponseField name="transcript_length" type="integer">
+  Length of transcript in characters
+</ResponseField>
+
+<ResponseField name="metadata" type="object">
+  Transcript metadata
+  <Expandable title="properties">
+    <ResponseField name="ticker" type="string">
+      Company ticker
+    </ResponseField>
+    <ResponseField name="year" type="integer">
+      Fiscal year
+    </ResponseField>
+    <ResponseField name="quarter" type="integer">
+      Fiscal quarter
+    </ResponseField>
+    <ResponseField name="date" type="string">
+      Earnings call date
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Highlighted Output Example
+
+```html
+Operator: Good day, and thank you for standing by...
+
+<mark class="highlighted-chunk" data-chunk-id="chunk-42">
+Our Services revenue grew 14% year over year to reach a new all-time high of $22.3 billion. This growth was driven by strong performance across our services portfolio.
+</mark>
+
+We also saw continued momentum in our Products segment...
+```
+
+## Highlighting Logic
+
+The API uses a two-step approach to highlight relevant sections:
+
+1. **Primary Method**: Uses `char_offset` and `chunk_length` for precise positioning
+2. **Fallback Method**: Performs text search on `chunk_text` if offset is unavailable
+
+### Minimum Highlight Length
+
+Highlighted regions are expanded to a minimum of 1,200 characters with a 400-character look-ahead to provide context.
+
+## Error Responses
+
+### Transcript Not Found
+
+```json
+{
+  "detail": "Full earnings transcript not yet available for TSLA 2025 Q1"
+}
+```
+
+**Status Code**: `404 Not Found`
+
+### Storage Error
+
+```json
+{
+  "detail": "Could not load transcript from storage"
+}
+```
+
+**Status Code**: `503 Service Unavailable`
+
+## Use Cases
+
+### 1. Display Full Transcript
+
+```python
+# Fetch and display a complete transcript
+response = requests.get(
+    "https://api.financeagent.com/transcript/MSFT/2024/2"
+)
+transcript = response.json()
+print(f"Transcript for {transcript['company_name']} Q{transcript['quarter']} {transcript['year']}")
+print(transcript['transcript_text'])
+```
+
+### 2. Highlight Search Results
+
+```python
+# After getting search results from chat API, highlight matching sections
+relevant_chunks = [
+    {
+        "chunk_id": "chunk-15",
+        "char_offset": 8500,
+        "chunk_length": 650,
+        "chunk_text": "Cloud revenue increased by 23%..."
+    }
+]
+
+response = requests.post(
+    "https://api.financeagent.com/transcript/with-highlights",
+    json={
+        "ticker": "MSFT",
+        "year": 2024,
+        "quarter": 2,
+        "relevant_chunks": relevant_chunks
+    }
+)
+
+html_content = response.json()['highlighted_transcript']
+# Render html_content in your application
+```
+
+### 3. Compare Multiple Transcripts
+
+```python
+# Fetch transcripts for trend analysis
+quarters = [1, 2, 3, 4]
+transcripts = []
+
+for q in quarters:
+    response = requests.get(
+        f"https://api.financeagent.com/transcript/NVDA/2024/{q}"
+    )
+    transcripts.append(response.json())
+
+# Analyze or display side-by-side
+```
+
+## Caching
+
+Transcript text is cached in-memory (max 50 transcripts) to reduce S3 API calls and improve response times. Metadata queries always hit PostgreSQL for accuracy.
+
+## Performance
+
+- **Metadata Query**: ~50-100ms (PostgreSQL)
+- **Transcript Fetch**: ~200-500ms (S3, first request)
+- **Cached Transcript**: ~10-20ms (in-memory)
+- **Highlighting**: ~50-100ms (text processing)
+
+<Info>
+  For best performance, use `char_offset` in highlight requests rather than relying on text search fallback.
+</Info>

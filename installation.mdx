@@ -1,0 +1,725 @@
+---
+title: Installation
+description: Complete installation guide for Finance Agent with all dependencies and configuration options
+---
+
+# Installation guide
+
+This guide covers complete installation of Finance Agent, including database setup, data ingestion, and production deployment.
+
+## System requirements
+
+### Minimum requirements
+
+- **Python:** 3.9 or higher
+- **PostgreSQL:** 12+ with pgvector extension
+- **RAM:** 4GB minimum, 8GB recommended
+- **Disk:** 10GB for application + data
+- **OS:** Linux, macOS, or Windows with WSL2
+
+### Optional components
+
+- **Redis:** For session caching and WebSocket management
+- **DuckDB:** For financial screener (included in requirements)
+- **AWS S3:** For storing full transcript and filing documents
+
+## Installation methods
+
+<Tabs>
+  <Tab title="Local development">
+    
+### Step 1: Install Python and dependencies
+
+```bash
+# Check Python version (3.9+ required)
+python --version
+
+# Create virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Clone repository
+git clone https://github.com/kamathhrishi/stratalensai.git
+cd finance_agent
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### Step 2: Install PostgreSQL with pgvector
+
+<AccordionGroup>
+  <Accordion title="Ubuntu/Debian">
+    ```bash
+    # Install PostgreSQL
+    sudo apt update
+    sudo apt install postgresql postgresql-contrib
+    
+    # Install pgvector extension
+    sudo apt install postgresql-server-dev-all
+    cd /tmp
+    git clone --branch v0.5.1 https://github.com/pgvector/pgvector.git
+    cd pgvector
+    make
+    sudo make install
+    
+    # Create database
+    sudo -u postgres createdb stratalens
+    sudo -u postgres psql stratalens -c "CREATE EXTENSION vector;"
+    ```
+  </Accordion>
+  
+  <Accordion title="macOS">
+    ```bash
+    # Install PostgreSQL via Homebrew
+    brew install postgresql@14
+    brew services start postgresql@14
+    
+    # Install pgvector
+    brew install pgvector
+    
+    # Create database
+    createdb stratalens
+    psql stratalens -c "CREATE EXTENSION vector;"
+    ```
+  </Accordion>
+  
+  <Accordion title="Docker">
+    ```bash
+    # Run PostgreSQL with pgvector using Docker
+    docker run -d \
+      --name finance-agent-postgres \
+      -e POSTGRES_DB=stratalens \
+      -e POSTGRES_PASSWORD=changeme \
+      -p 5432:5432 \
+      pgvector/pgvector:pg14
+    
+    # Verify pgvector extension
+    docker exec -it finance-agent-postgres psql -U postgres -d stratalens -c "CREATE EXTENSION IF NOT EXISTS vector;"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Step 3: Install Redis (optional)
+
+```bash
+# Ubuntu/Debian
+sudo apt install redis-server
+sudo systemctl start redis
+
+# macOS
+brew install redis
+brew services start redis
+
+# Docker
+docker run -d --name finance-agent-redis -p 6379:6379 redis:7-alpine
+```
+
+### Step 4: Configure environment
+
+Copy and edit the environment file:
+
+```bash
+cp .env.example .env
+```
+
+Edit `.env` with your configuration:
+
+```bash
+# ========================================
+# AI Model API Keys (REQUIRED)
+# ========================================
+OPENAI_API_KEY=sk-your-openai-api-key-here
+CEREBRAS_API_KEY=your-cerebras-api-key-here
+API_NINJAS_KEY=your-api-ninjas-key-here
+
+# Which LLM to use (cerebras | openai | auto)
+RAG_LLM_PROVIDER=cerebras
+
+# Optional: Real-time news search
+TAVILY_API_KEY=your-tavily-api-key-here
+
+# ========================================
+# Database Configuration
+# ========================================
+DATABASE_URL=postgresql://postgres:changeme@localhost:5432/stratalens
+
+# ========================================
+# Application Settings
+# ========================================
+ENVIRONMENT=development
+PORT=8000
+HOST=0.0.0.0
+BASE_URL=http://localhost:8000
+
+# ========================================
+# Authentication (Production)
+# ========================================
+# Get these from Clerk Dashboard: https://dashboard.clerk.com
+CLERK_SECRET_KEY=sk_test_your-clerk-secret-key
+CLERK_PUBLISHABLE_KEY=pk_test_your-clerk-publishable-key
+
+# Frontend (Vite requires VITE_ prefix)
+VITE_CLERK_PUBLISHABLE_KEY=pk_test_your-clerk-publishable-key
+
+# Auth bypass for development (set to false in production)
+AUTH_DISABLED=true
+
+# ========================================
+# Optional Services
+# ========================================
+REDIS_URL=redis://localhost:6379
+LOGFIRE_TOKEN=your-logfire-token-here  # For observability
+
+# ========================================
+# Logging
+# ========================================
+LOG_LEVEL=INFO
+RAG_DEBUG_MODE=false  # Set to true for detailed agent reasoning
+```
+
+### Step 5: Verify installation
+
+```bash
+# Test database connection
+python -c "import psycopg2; conn = psycopg2.connect('postgresql://postgres:changeme@localhost:5432/stratalens'); print('Database OK')"
+
+# Test dependencies
+python -c "import fastapi, openai, langchain, sentence_transformers; print('Dependencies OK')"
+
+# Start server
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+Access at `http://localhost:8000`
+
+  </Tab>
+  
+  <Tab title="Production deployment">
+
+### Railway deployment (recommended)
+
+Finance Agent is optimized for Railway deployment:
+
+<Steps>
+  <Step title="Create Railway project">
+    1. Visit [railway.app](https://railway.app)
+    2. Click "New Project"
+    3. Select "Deploy from GitHub repo"
+    4. Connect your forked repository
+  </Step>
+  
+  <Step title="Add PostgreSQL service">
+    1. Click "New Service" → "Database" → "PostgreSQL"
+    2. Railway automatically configures `DATABASE_URL`
+    3. Connect to database and install pgvector:
+    
+    ```sql
+    CREATE EXTENSION IF NOT EXISTS vector;
+    ```
+  </Step>
+  
+  <Step title="Add Redis service">
+    1. Click "New Service" → "Database" → "Redis"
+    2. Railway automatically configures `REDIS_URL`
+  </Step>
+  
+  <Step title="Configure environment variables">
+    Add these to your Railway service:
+    
+    ```bash
+    # AI APIs
+    OPENAI_API_KEY=sk-...
+    CEREBRAS_API_KEY=...
+    API_NINJAS_KEY=...
+    TAVILY_API_KEY=...  # Optional
+    
+    # Application
+    ENVIRONMENT=production
+    BASE_URL=https://your-app.railway.app
+    
+    # Auth (from Clerk Dashboard)
+    CLERK_SECRET_KEY=sk_live_...
+    CLERK_PUBLISHABLE_KEY=pk_live_...
+    VITE_CLERK_PUBLISHABLE_KEY=pk_live_...
+    AUTH_DISABLED=false  # Enable auth in production
+    
+    # Optional
+    LOGFIRE_TOKEN=...  # For monitoring
+    ```
+  </Step>
+  
+  <Step title="Deploy">
+    Railway automatically builds and deploys on git push:
+    
+    ```bash
+    git push origin main
+    ```
+    
+    Your app will be available at `https://your-app.railway.app`
+  </Step>
+</Steps>
+
+### Configuration file
+
+Railway deployment uses `railway.toml`:
+
+```toml
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "uvicorn app.main:app --host 0.0.0.0 --port $PORT"
+restartPolicyType = "on-failure"
+restartPolicyMaxRetries = 10
+```
+
+  </Tab>
+  
+  <Tab title="Docker">
+
+### Using Docker Compose
+
+Create `docker-compose.yml`:
+
+```yaml
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg14
+    environment:
+      POSTGRES_DB: stratalens
+      POSTGRES_PASSWORD: changeme
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+  
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+  
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:changeme@postgres:5432/stratalens
+      REDIS_URL: redis://redis:6379
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+      - redis
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+volumes:
+  postgres_data:
+```
+
+Create `Dockerfile`:
+
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application
+COPY . .
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+Run with:
+
+```bash
+docker-compose up -d
+```
+
+  </Tab>
+</Tabs>
+
+## Python dependencies
+
+The `requirements.txt` includes:
+
+### Core web framework
+
+```txt
+fastapi
+uvicorn[standard]
+starlette
+```
+
+### Database and ORM
+
+```txt
+asyncpg==0.30.0          # PostgreSQL async driver
+psycopg2-binary          # PostgreSQL sync driver
+SQLAlchemy               # ORM
+```
+
+### Authentication and security
+
+```txt
+PyJWT[crypto]            # JWT verification (Clerk integration)
+python-jose[cryptography]
+passlib[bcrypt]==1.7.4
+```
+
+### AI and LLM
+
+```txt
+openai                   # OpenAI API client
+cerebras-cloud-sdk       # Cerebras API client
+langchain==0.3.18        # LLM framework
+langchain-community==0.3.17
+langchain-core==0.3.34
+langchain-openai
+langchain-text-splitters==0.3.6
+sentence-transformers==3.4.1  # Embeddings (all-MiniLM-L6-v2)
+tiktoken==0.8.0          # Token counting
+```
+
+### Data processing
+
+```txt
+pandas
+numpy==2.2.5
+python-multipart
+python-dotenv
+```
+
+### Caching and HTTP
+
+```txt
+redis==5.2.1
+requests
+httpx
+websockets==15.0.1
+```
+
+### Utilities
+
+```txt
+aiofiles==24.1.0
+pydantic==2.10.6
+pydantic-settings==2.7.1
+tavily==1.1.0            # Real-time news search
+tenacity==9.0.0          # Retry logic
+logfire[fastapi]         # Observability (optional)
+boto3>=1.35.0            # AWS S3 for document storage
+```
+
+## Data ingestion
+
+<Warning>
+Data ingestion is optional for testing. You can use the live platform at [stratalens.ai](https://www.stratalens.ai) which already has data loaded.
+</Warning>
+
+To set up your own data:
+
+### Earnings transcripts
+
+<Steps>
+  <Step title="Download transcripts">
+    ```bash
+    python agent/rag/data_ingestion/download_transcripts.py
+    ```
+    
+    This downloads earnings call transcripts from API Ninjas.
+  </Step>
+  
+  <Step title="Ingest to database">
+    ```bash
+    # Ingest specific company and years
+    python agent/rag/data_ingestion/ingest_with_structure.py \
+      --ticker AAPL \
+      --year-start 2020 \
+      --year-end 2025
+    
+    # Batch ingest multiple companies
+    for ticker in AAPL MSFT GOOGL NVDA TSLA; do
+      python agent/rag/data_ingestion/ingest_with_structure.py \
+        --ticker $ticker \
+        --year-start 2020 \
+        --year-end 2025
+    done
+    ```
+  </Step>
+  
+  <Step title="Generate embeddings">
+    ```bash
+    python agent/rag/data_ingestion/create_and_store_embeddings.py
+    ```
+    
+    This creates vector embeddings using sentence-transformers (all-MiniLM-L6-v2).
+  </Step>
+</Steps>
+
+### SEC 10-K filings
+
+<Steps>
+  <Step title="Download 10-K filings">
+    ```bash
+    # Download S&P 500 companies' 10-K filings
+    python agent/rag/data_ingestion/ingest_sp500_10k.py
+    ```
+  </Step>
+  
+  <Step title="Process and ingest">
+    ```bash
+    python agent/rag/data_ingestion/ingest_10k_to_database.py \
+      --ticker AAPL \
+      --year 2024
+    ```
+    
+    This:
+    - Parses SEC filings into sections (Item 1, Item 7, Item 8, etc.)
+    - Extracts financial statement tables
+    - Generates embeddings for text chunks
+    - Stores in PostgreSQL with pgvector
+  </Step>
+</Steps>
+
+### Database schema
+
+The ingestion process creates these tables:
+
+```sql
+-- Earnings transcript chunks
+CREATE TABLE transcript_chunks (
+    id SERIAL PRIMARY KEY,
+    chunk_text TEXT,
+    embedding VECTOR(384),  -- all-MiniLM-L6-v2 embeddings
+    ticker VARCHAR(10),
+    year INTEGER,
+    quarter INTEGER,
+    metadata JSONB
+);
+
+-- SEC 10-K text chunks
+CREATE TABLE ten_k_chunks (
+    id SERIAL PRIMARY KEY,
+    chunk_text TEXT,
+    embedding VECTOR(384),
+    ticker VARCHAR(10),
+    fiscal_year INTEGER,
+    sec_section VARCHAR(50),  -- item_1, item_7, item_8, etc.
+    sec_section_title TEXT,
+    is_financial_statement BOOLEAN,
+    metadata JSONB
+);
+
+-- SEC 10-K financial tables
+CREATE TABLE ten_k_tables (
+    id SERIAL PRIMARY KEY,
+    ticker VARCHAR(10),
+    fiscal_year INTEGER,
+    content JSONB,  -- Structured table data
+    statement_type VARCHAR(50),  -- income_statement, balance_sheet, cash_flow
+    is_financial_statement BOOLEAN,
+    metadata JSONB
+);
+```
+
+## Configuration reference
+
+### Environment variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `OPENAI_API_KEY` | Yes | - | OpenAI API key for embeddings and LLM |
+| `CEREBRAS_API_KEY` | Recommended | - | Cerebras API key for fast inference |
+| `API_NINJAS_KEY` | Yes | - | API Ninjas key for earnings transcripts |
+| `TAVILY_API_KEY` | Optional | - | Tavily key for real-time news search |
+| `DATABASE_URL` | Yes | - | PostgreSQL connection string |
+| `REDIS_URL` | Optional | redis://localhost:6379 | Redis connection string |
+| `ENVIRONMENT` | No | development | Environment (development/production) |
+| `PORT` | No | 8000 | Server port |
+| `BASE_URL` | No | http://localhost:8000 | Base URL for the application |
+| `RAG_LLM_PROVIDER` | No | cerebras | LLM provider (cerebras/openai/auto) |
+| `RAG_DEBUG_MODE` | No | false | Enable detailed agent logging |
+| `AUTH_DISABLED` | No | true | Bypass authentication (dev only) |
+| `CLERK_SECRET_KEY` | Production | - | Clerk auth secret key |
+| `CLERK_PUBLISHABLE_KEY` | Production | - | Clerk auth publishable key |
+| `LOG_LEVEL` | No | INFO | Logging level |
+
+### LLM provider configuration
+
+Choose between OpenAI and Cerebras:
+
+```bash
+# Cerebras (default - fast and cost-effective)
+RAG_LLM_PROVIDER=cerebras
+CEREBRAS_API_KEY=your-key
+
+# OpenAI (fallback)
+RAG_LLM_PROVIDER=openai
+OPENAI_API_KEY=sk-your-key
+
+# Auto (uses Cerebras if available, else OpenAI)
+RAG_LLM_PROVIDER=auto
+```
+
+Models used:
+- **Cerebras:** qwen-3-235b-a22b-instruct-2507 (fast inference)
+- **OpenAI:** gpt-5-nano-2025-08-07 (fallback)
+- **Embeddings:** all-MiniLM-L6-v2 (384 dimensions)
+
+### Database connection pool
+
+Production vs. development settings (from `config.py`):
+
+```python
+# Production
+min_size: 5
+max_size: 30
+command_timeout: 20
+timeout: 15
+
+# Development
+min_size: 10
+max_size: 50
+command_timeout: 30
+timeout: 20
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="pgvector extension not found">
+    ```bash
+    # Ubuntu/Debian
+    sudo apt install postgresql-server-dev-all
+    cd /tmp
+    git clone https://github.com/pgvector/pgvector.git
+    cd pgvector
+    make
+    sudo make install
+    
+    # macOS
+    brew install pgvector
+    
+    # Then in PostgreSQL:
+    psql -d stratalens -c "CREATE EXTENSION vector;"
+    ```
+  </Accordion>
+  
+  <Accordion title="Memory errors during data ingestion">
+    Process data in smaller batches:
+    
+    ```bash
+    # Ingest one year at a time
+    for year in {2020..2025}; do
+      python agent/rag/data_ingestion/ingest_with_structure.py \
+        --ticker AAPL \
+        --year-start $year \
+        --year-end $year
+    done
+    ```
+  </Accordion>
+  
+  <Accordion title="API rate limits">
+    If you hit rate limits during ingestion:
+    
+    - OpenAI: Upgrade to higher tier or add delays
+    - API Ninjas: Free tier has limits, consider paid plan
+    - Cerebras: Contact for higher limits
+    
+    Add retry logic:
+    ```python
+    from tenacity import retry, stop_after_attempt, wait_exponential
+    
+    @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10))
+    def api_call():
+        # Your API call here
+        pass
+    ```
+  </Accordion>
+  
+  <Accordion title="Slow vector search queries">
+    Create indexes on frequently queried columns:
+    
+    ```sql
+    -- Index for vector similarity search
+    CREATE INDEX ON transcript_chunks USING ivfflat (embedding vector_cosine_ops);
+    CREATE INDEX ON ten_k_chunks USING ivfflat (embedding vector_cosine_ops);
+    
+    -- Indexes for filtering
+    CREATE INDEX idx_ticker ON transcript_chunks(ticker);
+    CREATE INDEX idx_year_quarter ON transcript_chunks(year, quarter);
+    ```
+  </Accordion>
+  
+  <Accordion title="Frontend build errors">
+    ```bash
+    cd frontend
+    
+    # Install dependencies
+    npm install
+    
+    # Build
+    npm run build
+    
+    # Development mode
+    npm run dev
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Production checklist
+
+Before deploying to production:
+
+- [ ] Set `ENVIRONMENT=production`
+- [ ] Set `AUTH_DISABLED=false`
+- [ ] Configure Clerk authentication keys
+- [ ] Use strong database passwords
+- [ ] Enable SSL for database connections
+- [ ] Set up monitoring (Logfire or equivalent)
+- [ ] Configure CORS origins for your domain
+- [ ] Set up backup for PostgreSQL database
+- [ ] Configure rate limiting
+- [ ] Review and set appropriate log levels
+- [ ] Set up error alerting
+- [ ] Test all API endpoints
+- [ ] Load test with expected traffic
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Run your first query in 5 minutes
+  </Card>
+  
+  <Card title="Agent system" icon="robot" href="/agent-system">
+    Understand the RAG architecture
+  </Card>
+  
+  <Card title="API reference" icon="code" href="/api-reference">
+    Explore endpoints and integration
+  </Card>
+  
+  <Card title="Data ingestion" icon="database" href="/data-ingestion">
+    Deep dive into the ingestion pipeline
+  </Card>
+</CardGroup>
+
+<Note>
+For questions or issues, reach out at hrishi@stratalens.ai or open an issue on [GitHub](https://github.com/kamathhrishi/stratalensai).
+</Note>

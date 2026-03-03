@@ -1,0 +1,361 @@
+---
+title: 'Data Ingestion'
+description: 'How to ingest earnings transcripts and 10-K filings into Finance Agent'
+---
+
+## Overview
+
+Finance Agent requires two main types of financial data:
+
+1. **Earnings Transcripts**: Quarterly earnings call transcripts stored with full text and vector embeddings
+2. **10-K Filings**: Annual SEC filings with sophisticated section extraction and table identification
+
+Both are stored in PostgreSQL with the pgvector extension for semantic search.
+
+## Prerequisites
+
+<Steps>
+  <Step title="Database Setup">
+    Ensure PostgreSQL with pgvector extension is configured:
+    
+    ```bash
+    # Set in your .env file
+    PG_VECTOR=postgresql://username:password@host:5432/database
+    ```
+  </Step>
+
+  <Step title="API Keys">
+    Configure required API keys in `.env`:
+    
+    ```bash
+    OPENAI_API_KEY=sk-your-key-here  # For embeddings
+    API_NINJAS_KEY=your-key-here     # For downloading transcripts
+    ```
+  </Step>
+
+  <Step title="S3 Bucket (Optional)">
+    For full transcript storage (enables transcript viewer):
+    
+    ```bash
+    RAILWAY_BUCKET_ENDPOINT=your-s3-endpoint
+    RAILWAY_BUCKET_ACCESS_KEY_ID=your-access-key
+    RAILWAY_BUCKET_SECRET_KEY=your-secret-key
+    RAILWAY_BUCKET_NAME=your-bucket-name
+    ```
+  </Step>
+</Steps>
+
+## Ingesting Earnings Transcripts
+
+### Step 1: Download Transcripts
+
+Download earnings call transcripts using API Ninjas:
+
+```bash
+cd agent/rag/data_ingestion
+python download_transcripts.py --ticker AAPL
+```
+
+<CodeGroup>
+```bash Single Ticker
+python download_transcripts.py --ticker AAPL
+```
+
+```bash Multiple Tickers
+python download_transcripts.py --tickers AAPL MSFT GOOGL NVDA
+```
+
+```bash With Quarter Range
+python download_transcripts.py --ticker TSLA --quarters 2024_q1 2024_q2 2024_q3 2024_q4
+```
+</CodeGroup>
+
+Transcripts are saved as JSON files in `agent/rag/data_ingestion/earnings_transcripts/`.
+
+### Step 2: Process and Store in Database
+
+Create embeddings and store chunks in PostgreSQL:
+
+```bash
+python ingest_with_structure.py --ticker AAPL
+```
+
+<CodeGroup>
+```bash Single Company
+python ingest_with_structure.py --ticker AAPL
+```
+
+```bash Multiple Companies
+python ingest_with_structure.py --tickers AAPL MSFT GOOGL
+```
+
+```bash Batch Processing
+python ingest_with_structure.py --all-transcripts
+```
+</CodeGroup>
+
+**What happens during ingestion:**
+
+<Steps>
+  <Step title="Text Chunking">
+    Transcripts are split into chunks (1000 chars, 200 char overlap) for semantic search
+  </Step>
+
+  <Step title="Embedding Generation">
+    Each chunk is embedded using `all-MiniLM-L6-v2` (384-dimensional vectors)
+  </Step>
+
+  <Step title="Database Storage">
+    Chunks and embeddings are stored in the `transcript_chunks` table with metadata (ticker, year, quarter)
+  </Step>
+
+  <Step title="Hybrid Search Index">
+    Creates both vector (IVFFlat) and keyword (GIN) indexes for hybrid search
+  </Step>
+</Steps>
+
+### Step 3: Upload Full Transcripts to S3 (Optional)
+
+For the transcript viewer feature, upload full transcripts to S3 with character offsets:
+
+```bash
+python ingest_transcripts_to_bucket.py --tickers AAPL MSFT GOOGL
+```
+
+<CodeGroup>
+```bash Specific Tickers
+python ingest_transcripts_to_bucket.py --tickers AAPL MSFT
+```
+
+```bash By Market Cap
+python ingest_transcripts_to_bucket.py --market-caps "Mega Cap" "Large Cap"
+```
+
+```bash Custom Directory
+python ingest_transcripts_to_bucket.py --transcript-dir /path/to/transcripts
+```
+</CodeGroup>
+
+**This script:**
+- Uploads full transcript text to S3 (`transcripts/{ticker}/{year}_Q{quarter}.txt`)
+- Updates `complete_transcripts` table with `bucket_key`
+- Computes `char_offset` and `chunk_length` for each chunk to enable precise navigation
+
+<Warning>
+Without S3 upload, the transcript viewer won't be able to display full transcripts with highlighted chunks. The RAG system will still work using database chunks.
+</Warning>
+
+## Ingesting 10-K Filings
+
+### Download and Process 10-K Filings
+
+The 10-K ingestion uses sophisticated processing with section extraction and table identification:
+
+```bash
+cd agent/rag/data_ingestion
+python ingest_10k_to_database.py --ticker AAPL
+```
+
+<CodeGroup>
+```bash Single Company
+python ingest_10k_to_database.py --ticker AAPL
+```
+
+```bash Multiple Companies
+python ingest_10k_to_database.py --tickers AAPL MSFT GOOGL NVDA
+```
+
+```bash FinanceBench Companies
+python ingest_10k_to_database.py --all-financebench
+```
+
+```bash With Lookback Period
+python ingest_10k_to_database.py --ticker TSLA --lookback-years 3
+```
+
+```bash Parallel Processing
+python ingest_10k_to_database.py --tickers AAPL MSFT GOOGL --workers 4
+```
+</CodeGroup>
+
+### Advanced Options
+
+```bash
+# Process all US companies (9500+)
+python ingest_10k_to_database.py --all-tickers --workers 8
+
+# Resume from specific position
+python ingest_10k_to_database.py --all-tickers --skip-first 100
+
+# Limit number of tickers
+python ingest_10k_to_database.py --all-tickers --max-tickers 50
+
+# Set timeout per ticker (in minutes)
+python ingest_10k_to_database.py --ticker AAPL --timeout 45
+
+# Retry failed tickers
+python ingest_10k_to_database.py --all-tickers --retry-failed
+```
+
+### 10-K Processing Pipeline
+
+The ingestion performs sophisticated document processing:
+
+<Steps>
+  <Step title="Download from SEC EDGAR">
+    Uses `datamule` library to fetch 10-K filings for the specified fiscal years
+  </Step>
+
+  <Step title="Hierarchical Section Extraction">
+    Identifies SEC sections (Item 1, Item 1A, Item 7, etc.) and preserves document structure
+  </Step>
+
+  <Step title="Table Extraction">
+    Extracts tables and identifies financial statements (balance sheet, income statement, cash flow)
+  </Step>
+
+  <Step title="Contextual Chunking">
+    Chunks preserve section context in metadata for better retrieval
+  </Step>
+
+  <Step title="Embedding Generation">
+    Creates 384-dimensional embeddings using `all-MiniLM-L6-v2`
+  </Step>
+
+  <Step title="Database Storage">
+    Stores in three tables:
+    - `ten_k_chunks`: Text chunks with embeddings and section metadata
+    - `ten_k_tables`: Extracted tables with financial statement flags
+    - `complete_sec_filings`: Full document text with section offsets
+  </Step>
+</Steps>
+
+### Database Schema
+
+**transcript_chunks**
+```sql
+CREATE TABLE transcript_chunks (
+    id SERIAL PRIMARY KEY,
+    ticker VARCHAR(10),
+    year INTEGER,
+    quarter INTEGER,
+    chunk_index INTEGER,
+    chunk_text TEXT,
+    embedding vector(384),
+    char_offset INTEGER,        -- For S3 navigation
+    chunk_length INTEGER,       -- For S3 navigation
+    metadata JSONB
+);
+```
+
+**ten_k_chunks**
+```sql
+CREATE TABLE ten_k_chunks (
+    id SERIAL PRIMARY KEY,
+    ticker VARCHAR(10),
+    fiscal_year INTEGER,
+    filing_type VARCHAR(10),
+    chunk_index INTEGER,
+    chunk_text TEXT,
+    embedding vector(384),
+    sec_section VARCHAR(50),         -- e.g., "item_1", "item_1a"
+    sec_section_title VARCHAR(200),  -- e.g., "Business", "Risk Factors"
+    chunk_type VARCHAR(50),          -- e.g., "text", "table"
+    path_string TEXT,                -- Hierarchical path
+    metadata JSONB
+);
+```
+
+**ten_k_tables**
+```sql
+CREATE TABLE ten_k_tables (
+    id SERIAL PRIMARY KEY,
+    table_id VARCHAR(100) UNIQUE,
+    ticker VARCHAR(10),
+    fiscal_year INTEGER,
+    content TEXT,
+    table_data JSONB,
+    is_financial_statement BOOLEAN,
+    statement_type VARCHAR(50),  -- e.g., "balance_sheet", "income_statement"
+    priority VARCHAR(20)         -- e.g., "HIGH", "NORMAL"
+);
+```
+
+## Verification
+
+After ingestion, verify the data:
+
+### Check Transcript Data
+
+```sql
+-- Count chunks per ticker
+SELECT ticker, year, quarter, COUNT(*) as chunk_count
+FROM transcript_chunks
+GROUP BY ticker, year, quarter
+ORDER BY year DESC, quarter DESC;
+
+-- Verify embeddings
+SELECT COUNT(*) as total_chunks,
+       COUNT(embedding) as chunks_with_embeddings
+FROM transcript_chunks;
+```
+
+### Check 10-K Data
+
+```sql
+-- Count 10-K chunks per company
+SELECT ticker, fiscal_year, COUNT(*) as chunk_count
+FROM ten_k_chunks
+GROUP BY ticker, fiscal_year
+ORDER BY ticker, fiscal_year DESC;
+
+-- Check financial statements
+SELECT ticker, fiscal_year, statement_type, COUNT(*)
+FROM ten_k_tables
+WHERE is_financial_statement = true
+GROUP BY ticker, fiscal_year, statement_type
+ORDER BY ticker, fiscal_year DESC;
+```
+
+### Test Search
+
+```bash
+# Test the RAG agent
+python -c "
+import asyncio
+from agent.rag.rag_agent import RAGAgent
+
+agent = RAGAgent()
+result = asyncio.run(agent.execute_rag_flow(
+    'What was AAPL revenue in Q1 2025?',
+    conversation_id='test'
+))
+print(result['answer'])
+"
+```
+
+## Troubleshooting
+
+<Warning>
+**Common Issues:**
+
+1. **Missing pgvector extension**: Run `CREATE EXTENSION vector;` in PostgreSQL
+2. **API key errors**: Verify `OPENAI_API_KEY` and `API_NINJAS_KEY` in `.env`
+3. **Memory issues during 10-K ingestion**: Reduce `--workers` or increase timeout
+4. **Duplicate data**: The scripts automatically skip already-processed filings
+</Warning>
+
+### Performance Tips
+
+- **Parallel workers**: Use `--workers 4-8` for faster processing
+- **Batch size**: Process 50-100 tickers at a time for optimal memory usage
+- **Resume capability**: Use `--skip-first N` to resume interrupted batch jobs
+- **Timeout**: Set `--timeout 45` for companies with large 10-K filings
+
+## Next Steps
+
+After ingestion:
+
+1. Configure [RAG settings](/guides/configuration) for optimal performance
+2. Learn how to [ask effective questions](/guides/asking-questions)
+3. Set up [authentication](/guides/authentication) for production deployment

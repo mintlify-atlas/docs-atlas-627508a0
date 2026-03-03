@@ -1,0 +1,476 @@
+---
+title: 'Data Sources'
+description: 'Exploring the three specialized data source tools used by Finance Agent'
+---
+
+Finance Agent orchestrates access to three specialized data source tools, each optimized for different types of financial information:
+
+<CardGroup cols={3}>
+  <Card title="Earnings Transcripts" icon="microphone">
+    Quarterly earnings call transcripts with hybrid search
+  </Card>
+  <Card title="SEC 10-K Filings" icon="file-invoice">
+    Annual SEC filings with planning-driven retrieval
+  </Card>
+  <Card title="Real-Time News" icon="newspaper">
+    Breaking news and recent developments via Tavily
+  </Card>
+</CardGroup>
+
+## Earnings Transcript Search
+
+For quarterly earnings questions, the agent uses hybrid search over transcript chunks stored in PostgreSQL.
+
+### How It Works
+
+```python
+# From agent/rag/search_engine.py:73-78
+def search_similar_chunks(query, top_k, quarter):
+    """
+    Hybrid search combining:
+    - Vector search: 70% weight (semantic similarity via pgvector)
+    - Keyword search: 30% weight (TF-IDF)
+    """
+```
+
+### Database Schema
+
+<CodeGroup>
+```sql PostgreSQL Table: transcript_chunks
+CREATE TABLE transcript_chunks (
+    chunk_text TEXT,              -- 1000 chars max, 200 overlap
+    embedding VECTOR(384),        -- all-MiniLM-L6-v2, 384 dimensions
+    ticker VARCHAR,               -- e.g., "AAPL"
+    year INTEGER,                 -- e.g., 2024
+    quarter INTEGER,              -- 1-4
+    metadata JSONB
+);
+
+-- Example indexes
+CREATE INDEX idx_transcript_ticker ON transcript_chunks(ticker);
+CREATE INDEX idx_transcript_quarter ON transcript_chunks(year, quarter);
+CREATE INDEX idx_transcript_embedding ON transcript_chunks 
+    USING ivfflat (embedding vector_cosine_ops);
+```
+</CodeGroup>
+
+### Search Process
+
+<Steps>
+  <Step title="Generate Query Embedding">
+    Convert the search query to a 384-dimensional vector using `all-MiniLM-L6-v2`.
+  </Step>
+  
+  <Step title="Vector Search">
+    Find semantically similar chunks using cosine similarity in pgvector.
+  </Step>
+  
+  <Step title="Keyword Search">
+    Perform full-text search using PostgreSQL's `ts_rank` for exact phrase matching.
+  </Step>
+  
+  <Step title="Hybrid Scoring">
+    Combine results with 70% vector weight + 30% keyword weight.
+  </Step>
+  
+  <Step title="Filter by Quarter">
+    Apply quarter/year filters if specified in the query.
+  </Step>
+  
+  <Step title="Return Top K">
+    Return the top 15 chunks per quarter (configurable).
+  </Step>
+</Steps>
+
+### Best For
+
+<AccordionGroup>
+  <Accordion title="Quarterly Performance" icon="chart-line">
+    - Recent quarter results and metrics
+    - Quarter-over-quarter comparisons
+    - Segment performance discussions
+  </Accordion>
+
+  <Accordion title="Management Commentary" icon="comments">
+    - Executive statements and tone
+    - Strategic initiatives and priorities
+    - Product launch discussions
+  </Accordion>
+
+  <Accordion title="Forward Guidance" icon="crystal-ball">
+    - Outlook and projections
+    - Expected revenue/earnings ranges
+    - Guidance on margins, capex, etc.
+  </Accordion>
+
+  <Accordion title="Analyst Q&A" icon="question">
+    - Investor concerns and questions
+    - Management responses to analysts
+    - Clarifications on results
+  </Accordion>
+</AccordionGroup>
+
+### Example Usage
+
+<CodeGroup>
+```python Search Earnings Transcripts
+# Single ticker, specific quarter
+results = search_engine.search_similar_chunks(
+    query="AI infrastructure investments",
+    max_results=15,
+    target_quarter="2024_q4"
+)
+
+# Multi-ticker, multiple quarters
+for ticker in ["AAPL", "MSFT"]:
+    for quarter in ["2024_q4", "2025_q1"]:
+        results = search_engine.search_similar_chunks(
+            query=f"{ticker} revenue growth",
+            target_quarter=quarter
+        )
+```
+</CodeGroup>
+
+## SEC 10-K Filings Agent
+
+A specialized **retrieval agent** optimized for extracting information from SEC 10-K annual filings.
+
+<Info>
+**Current scope**: 10-K filings only (annual reports). Support for 10-Q (quarterly) and 8-K (current events) is under development.
+</Info>
+
+### What Makes It Special
+
+Unlike simple search, the 10-K agent is a full retrieval agent with:
+
+- **Planning-driven sub-question generation**: Breaks complex questions into targeted searches
+- **LLM-based section routing**: Intelligently routes to Item 1, Item 7, Item 8, etc.
+- **Hybrid search with reranking**: TF-IDF + semantic + cross-encoder reranking
+- **LLM-based table selection**: Automatically finds relevant financial tables
+- **Iterative retrieval**: Up to 5 iterations with self-evaluation
+
+### 10-K Search Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         10-K SEARCH FLOW (max 5 iterations)                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────┐                                                        │
+│  │ PHASE 0: PLAN   │   Generate sub-questions + search plan                │
+│  │ • Sub-questions │   "What is inventory turnover?" →                     │
+│  │ • Search plan   │     - "What is COGS?" [TABLE]                         │
+│  └────────┬────────┘     - "What is inventory?" [TABLE]                    │
+│           │              - "Inventory valuation?" [TEXT]                   │
+│           ▼                                                                 │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │ PHASE 1: PARALLEL RETRIEVAL                                         │   │
+│  │ ├── Execute ALL searches in parallel (6 workers)                    │   │
+│  │ │   ├── TABLE: "cost of goods sold" → LLM selects tables            │   │
+│  │ │   ├── TABLE: "inventory balance" → LLM selects tables             │   │
+│  │ │   └── TEXT: "inventory valuation" → hybrid search                 │   │
+│  │ └── Deduplicate and combine chunks                                  │   │
+│  └────────┬────────────────────────────────────────────────────────────┘   │
+│           │                                                                 │
+│           ▼                                                                 │
+│  ┌─────────────────┐                                                        │
+│  │ PHASE 2: ANSWER │   Generate answer with ALL retrieved chunks          │
+│  └────────┬────────┘                                                        │
+│           │                                                                 │
+│           ▼                                                                 │
+│  ┌─────────────────┐                                                        │
+│  │ PHASE 3: EVAL   │   If quality >= 90% → DONE                            │
+│  │                 │   Else → Replan and loop back                         │
+│  └─────────────────┘                                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Features
+
+<AccordionGroup>
+  <Accordion title="Sub-Question Generation">
+    Breaks complex questions into targeted retrieval queries:
+    
+    **Example**: "What is Oracle's inventory turnover?"
+    
+    Sub-questions:
+    - "What is the cost of goods sold?" → Search financial tables
+    - "What is the inventory balance?" → Search financial tables
+    - "How is inventory valued?" → Search text sections
+  </Accordion>
+
+  <Accordion title="Section Routing">
+    Maps questions to specific 10-K sections:
+    
+    - **Item 1** (Business): Company overview, products, markets
+    - **Item 7** (MD&A): Management discussion, trends, outlook
+    - **Item 8** (Financial Statements): Balance sheet, income statement, cash flow
+    - **Risk Factors**: Detailed risk disclosures
+    - **Executive Compensation**: CEO pay, stock awards (ONLY in 10-K!)
+  </Accordion>
+
+  <Accordion title="LLM Table Selection">
+    Uses LLM to select relevant tables from financial statements:
+    
+    ```python
+    # LLM reviews all tables and selects the most relevant
+    selected_tables = llm.select_tables(
+        question="What is total debt?",
+        available_tables=["balance_sheet", "income_statement", "cash_flow"]
+    )
+    # Returns: ["balance_sheet"]
+    ```
+  </Accordion>
+
+  <Accordion title="Parallel Execution">
+    All sub-question searches run in parallel (up to 6 workers) for speed.
+  </Accordion>
+
+  <Accordion title="Dynamic Replanning">
+    If evaluation reveals gaps, generates new sub-questions and searches again.
+  </Accordion>
+</AccordionGroup>
+
+### Performance
+
+<Note>
+**Benchmark**: 91% accuracy on FinanceBench (112 questions), ~10s per question
+</Note>
+
+### Best For
+
+<AccordionGroup>
+  <Accordion title="Annual Financials" icon="file-invoice-dollar">
+    - Balance sheets, income statements, cash flow statements
+    - Total assets, liabilities, debt structure
+    - Multi-year historical comparisons
+    - Audited financial data
+  </Accordion>
+
+  <Accordion title="Executive Compensation" icon="money-bill">
+    - CEO pay, stock awards, bonuses
+    - **ONLY available in 10-K filings!**
+    - Compensation committee reports
+  </Accordion>
+
+  <Accordion title="Risk Factors" icon="triangle-exclamation">
+    - Legal proceedings and regulatory matters
+    - Business risks and uncertainties
+    - Market and competitive risks
+  </Accordion>
+
+  <Accordion title="Business Details" icon="building">
+    - Detailed business descriptions
+    - Segment breakdowns and operations
+    - Products, services, and markets
+  </Accordion>
+</AccordionGroup>
+
+### Database Schema
+
+<CodeGroup>
+```sql 10-K Text Chunks
+CREATE TABLE ten_k_chunks (
+    chunk_text TEXT,
+    embedding VECTOR(384),
+    sec_section VARCHAR,          -- item_1, item_7, item_8, etc.
+    sec_section_title TEXT,       -- Human-readable section name
+    is_financial_statement BOOLEAN,
+    ticker VARCHAR,
+    fiscal_year INTEGER
+);
+```
+
+```sql 10-K Financial Tables
+CREATE TABLE ten_k_tables (
+    content JSONB,                -- Table data in JSON format
+    statement_type VARCHAR,       -- income_statement, balance_sheet, cash_flow
+    is_financial_statement BOOLEAN,
+    ticker VARCHAR,
+    fiscal_year INTEGER
+);
+```
+</CodeGroup>
+
+### Example Usage
+
+<CodeGroup>
+```python Invoke 10-K Agent
+# Automatically invoked when semantic routing selects "10k"
+result = await agent.execute_rag_flow_async(
+    question="What was Tim Cook's compensation in 2023?"
+)
+# Routes to 10-K agent → finds executive compensation tables
+
+result = await agent.execute_rag_flow_async(
+    question="Show me Microsoft's balance sheet"
+)
+# Routes to 10-K agent → finds Item 8 financial statements
+```
+</CodeGroup>
+
+## Real-Time News (Tavily)
+
+Provides access to real-time web search for current events and breaking news.
+
+### How It Works
+
+```python
+# From agent/rag/tavily_service.py
+class TavilyService:
+    def search_news(self, query: str, max_results: int = 5):
+        """
+        Returns:
+            {
+                "answer": "AI-generated summary",
+                "results": [
+                    {
+                        "title": "Article headline",
+                        "url": "https://...",
+                        "content": "Article text",
+                        "published_date": "2024-01-15"
+                    }
+                ]
+            }
+        """
+
+    def format_news_context(self, news_results):
+        """Formats with [N1], [N2] citation markers"""
+```
+
+### When Used
+
+1. **Question contains news keywords**: "latest news", "recent developments", "breaking"
+2. **Agent requests during iteration**: Sets `needs_news_search=true` if answer needs current information
+3. **Hybrid mode**: Combined with transcripts or 10-K for comprehensive analysis
+
+### Best For
+
+<AccordionGroup>
+  <Accordion title="Recent Events" icon="clock">
+    - Last few days/weeks of developments
+    - Breaking announcements
+    - Very recent quarter results (before transcript available)
+  </Accordion>
+
+  <Accordion title="Market Reactions" icon="chart-line">
+    - Stock price movements
+    - Analyst upgrades/downgrades
+    - Market sentiment shifts
+  </Accordion>
+
+  <Accordion title="Corporate Actions" icon="handshake">
+    - Recent partnerships and acquisitions
+    - Leadership changes
+    - Product launches
+  </Accordion>
+
+  <Accordion title="Regulatory Updates" icon="gavel">
+    - New regulations affecting companies
+    - Legal proceedings
+    - Compliance matters
+  </Accordion>
+</AccordionGroup>
+
+### Citation Format
+
+News results include full attribution:
+
+```
+[N1] TechCrunch - "Apple announces new AI features" (2025-03-02)
+     https://techcrunch.com/...
+
+[N2] Bloomberg - "Microsoft beats Q1 estimates" (2025-03-01)
+     https://bloomberg.com/...
+```
+
+### Example Usage
+
+<CodeGroup>
+```python Search News
+# Automatically invoked when semantic routing selects "news"
+result = await agent.execute_rag_flow_async(
+    question="What's the latest news on NVIDIA?"
+)
+
+# Can be combined with other sources
+result = await agent.execute_rag_flow_async(
+    question="Compare 10-K risks with recent news for $TSLA"
+)
+# Routes to HYBRID mode → searches both 10-K and news
+```
+</CodeGroup>
+
+## Data Source Selection Matrix
+
+Here's a quick reference for which data source is best for different question types:
+
+| Question Type | Best Source | Why |
+|---------------|-------------|-----|
+| "What was Q4 revenue?" | Transcripts | Quarterly metrics |
+| "Show me the balance sheet" | 10-K | Annual financial statements |
+| "What did the CEO say about AI?" | Transcripts | Management commentary |
+| "What's the latest news?" | News | Recent developments |
+| "What is executive compensation?" | 10-K | Only in annual filings |
+| "What are the risk factors?" | 10-K | Detailed in Item 1A |
+| "Compare Q3 vs Q4" | Transcripts | Quarterly data |
+| "Analyze debt structure" | 10-K | Balance sheet details |
+| "Recent partnerships?" | News | Current events |
+| "Forward guidance?" | Transcripts | Outlook from earnings calls |
+
+## Multi-Source Hybrid Mode
+
+For complex questions, the agent can automatically combine multiple sources:
+
+<CodeGroup>
+```python Example: Hybrid Mode
+Question: "What is NVDA's competitive moat in AI chips?"
+
+Routing Decision:
+{
+  "data_sources": ["earnings_transcripts", "10k"],
+  "reasoning": "Requires both management commentary from earnings calls 
+                and strategic analysis from 10-K Item 1 (Business)."
+}
+
+Execution:
+├── Search earnings transcripts for recent AI chip discussions
+├── Search 10-K Item 1 for business strategy and competitive advantages
+├── Search 10-K Item 7 for management's competitive analysis
+└── Synthesize into comprehensive answer
+```
+</CodeGroup>
+
+## Performance Considerations
+
+<AccordionGroup>
+  <Accordion title="Processing Limits">
+    To maintain performance:
+    - **Max tickers**: 8 companies per query
+    - **Max quarters**: 12 quarters (3 years of quarterly data)
+    - **Chunks per quarter**: 15 (configurable)
+  </Accordion>
+
+  <Accordion title="Caching">
+    - Available quarters cached in config
+    - Database connections pooled
+    - Embeddings generated asynchronously
+  </Accordion>
+
+  <Accordion title="Parallel Execution">
+    - Multi-ticker searches run in parallel
+    - Multi-quarter searches run in parallel
+    - 10-K sub-questions run in parallel (up to 6 workers)
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Semantic Routing" icon="route" href="/concepts/semantic-routing">
+    Learn how the agent chooses data sources
+  </Card>
+  <Card title="RAG Pipeline" icon="diagram-project" href="/concepts/rag-pipeline">
+    Understand retrieval and generation
+  </Card>
+</CardGroup>

@@ -1,0 +1,468 @@
+---
+title: Database Setup
+description: PostgreSQL and pgvector setup guide for Finance Agent
+---
+
+## Overview
+
+Finance Agent uses **PostgreSQL with the pgvector extension** for:
+- Vector embeddings storage and similarity search
+- Hybrid search (vector + keyword/TF-IDF)
+- User authentication and session management
+- Chat history and conversation threads
+- Query analytics and logging
+
+<Note>
+  The pgvector extension is **required** for Finance Agent to function. Standard PostgreSQL without pgvector will not work.
+</Note>
+
+## PostgreSQL Installation
+
+### macOS
+
+```bash
+# Using Homebrew
+brew install postgresql@14
+
+# Start PostgreSQL
+brew services start postgresql@14
+```
+
+### Ubuntu/Debian
+
+```bash
+# Install PostgreSQL
+sudo apt update
+sudo apt install postgresql postgresql-contrib
+
+# Start PostgreSQL
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+```
+
+### Windows
+
+Download and install from [postgresql.org/download/windows](https://www.postgresql.org/download/windows/)
+
+---
+
+## pgvector Extension Setup
+
+<Steps>
+  <Step title="Install pgvector">
+    ### macOS
+    
+    ```bash
+    # Using Homebrew
+    brew install pgvector
+    ```
+    
+    ### Ubuntu/Debian
+    
+    ```bash
+    # Install build dependencies
+    sudo apt install postgresql-server-dev-14 build-essential git
+    
+    # Clone and build pgvector
+    git clone https://github.com/pgvector/pgvector.git
+    cd pgvector
+    make
+    sudo make install
+    ```
+    
+    ### Docker (Recommended for Development)
+    
+    ```bash
+    # Use official pgvector image
+    docker run -d \
+      --name finance-agent-db \
+      -e POSTGRES_PASSWORD=changeme \
+      -e POSTGRES_DB=stratalens \
+      -p 5432:5432 \
+      pgvector/pgvector:pg14
+    ```
+  </Step>
+
+  <Step title="Create the database">
+    ```bash
+    # Connect to PostgreSQL
+    psql -U postgres
+    
+    # Create database
+    CREATE DATABASE stratalens;
+    
+    # Connect to the database
+    \c stratalens
+    
+    # Enable pgvector extension
+    CREATE EXTENSION IF NOT EXISTS vector;
+    
+    # Verify installation
+    SELECT * FROM pg_extension WHERE extname = 'vector';
+    ```
+    
+    Expected output:
+    ```
+     oid  | extname | extowner | extnamespace | ... 
+    ------+---------+----------+--------------+-----
+     ... | vector  |       10 |         2200 | ...
+    ```
+  </Step>
+
+  <Step title="Create a database user (optional)">
+    For production or multi-user setups:
+    
+    ```sql
+    -- Create user
+    CREATE USER finance_agent WITH PASSWORD 'secure_password_here';
+    
+    -- Grant privileges
+    GRANT ALL PRIVILEGES ON DATABASE stratalens TO finance_agent;
+    
+    -- Connect to database and grant schema privileges
+    \c stratalens
+    GRANT ALL ON SCHEMA public TO finance_agent;
+    ```
+  </Step>
+
+  <Step title="Update environment variables">
+    Add the database URL to your `.env` file:
+    
+    ```bash
+    # For default postgres user
+    DATABASE_URL=postgresql://postgres:changeme@localhost:5432/stratalens
+    
+    # For custom user
+    DATABASE_URL=postgresql://finance_agent:secure_password_here@localhost:5432/stratalens
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Schema Initialization
+
+Finance Agent automatically creates all required tables on first startup. The schema includes:
+
+### Core Tables
+
+#### Users and Authentication
+
+- **users** - User accounts with Clerk integration
+- **invitations** - User invitation codes and metadata
+- **user_preferences** - User settings and preferences
+
+#### RAG System
+
+- **transcript_chunks** - Earnings transcript embeddings and metadata
+  - Contains: chunk_text, embedding (vector), ticker, year, quarter, chunk_index
+  - Primary data source for earnings call queries
+- **ten_k_chunks** - SEC 10-K filing embeddings and metadata
+  - Contains: chunk_text, embedding (vector), ticker, fiscal_year, sec_section, chunk_index
+  - Used for annual report and financial statement queries
+- **ten_k_tables** - Extracted tables from 10-K filings
+  - Contains: table_data, ticker, fiscal_year, is_financial_statement, statement_type
+
+#### Chat and History
+
+- **chat_conversations** - Conversation threads (like ChatGPT)
+- **chat_messages** - Individual messages within conversations
+- **chat_history** - Legacy chat history (backward compatibility)
+- **chat_analytics** - Query analytics and performance metrics
+
+#### Analytics and Logging
+
+- **query_history** - User query history and execution details
+- **search_queries** - Comprehensive search query logs
+- **user_usage** - Usage tracking for rate limiting and billing
+- **system_logs** - Application-level logging
+
+<Note>
+  All tables are created automatically when you first run the application. You don't need to run SQL scripts manually.
+</Note>
+
+---
+
+## Verify Database Setup
+
+<Steps>
+  <Step title="Check database connection">
+    ```bash
+    # Test PostgreSQL is running
+    pg_isready
+    
+    # Expected output:
+    # /var/run/postgresql:5432 - accepting connections
+    ```
+  </Step>
+
+  <Step title="Verify pgvector extension">
+    ```bash
+    psql -U postgres -d stratalens -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';"
+    
+    # Expected output:
+    #  extversion 
+    # ------------
+    #  0.5.0
+    ```
+  </Step>
+
+  <Step title="Start the application">
+    ```bash
+    python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ```
+    
+    Check the logs for:
+    ```
+    ✅ Database pool created: min_size=10, max_size=50
+    ✅ Usage tracking table created
+    ✅ Chat conversations table created
+    ✅ System logs table created
+    ```
+  </Step>
+
+  <Step title="Verify tables were created">
+    ```bash
+    psql -U postgres -d stratalens -c "\dt"
+    ```
+    
+    You should see tables like:
+    - users
+    - chat_conversations
+    - chat_messages
+    - transcript_chunks
+    - ten_k_chunks
+    - query_history
+    - And more...
+  </Step>
+</Steps>
+
+---
+
+## Data Ingestion
+
+After setting up the database, you need to ingest financial data for the RAG system to work.
+
+### Ingest Earnings Transcripts
+
+```bash
+# Download transcripts
+python agent/rag/data_ingestion/download_transcripts.py
+
+# Ingest transcripts for a specific company and date range
+python agent/rag/data_ingestion/ingest_with_structure.py \
+  --ticker AAPL \
+  --year-start 2020 \
+  --year-end 2025
+```
+
+<Note>
+  This creates embeddings and stores them in the `transcript_chunks` table with pgvector indexes for fast similarity search.
+</Note>
+
+### Ingest SEC 10-K Filings
+
+```bash
+# Ingest 10-K filings for a specific company
+python agent/rag/data_ingestion/ingest_10k_to_database.py \
+  --ticker AMZN \
+  --year-start 2019 \
+  --year-end 2024
+```
+
+The ingestion process:
+1. Downloads filings via datamule
+2. Extracts text with structural metadata (sections, tables)
+3. Generates embeddings using sentence-transformers
+4. Stores chunks in `ten_k_chunks` table
+5. Creates vector indexes for similarity search
+
+<Warning>
+  Data ingestion can be resource-intensive. For large date ranges, consider running ingestion overnight or in batches.
+</Warning>
+
+---
+
+## Database Indexes
+
+Finance Agent automatically creates indexes for optimal performance:
+
+### Vector Indexes (pgvector)
+
+```sql
+-- Automatically created during ingestion
+CREATE INDEX ON transcript_chunks USING ivfflat (embedding vector_cosine_ops);
+CREATE INDEX ON ten_k_chunks USING ivfflat (embedding vector_cosine_ops);
+```
+
+### B-tree Indexes
+
+```sql
+-- User and authentication indexes
+CREATE INDEX idx_users_clerk_id ON users(clerk_user_id);
+CREATE INDEX idx_users_username ON users(username);
+CREATE INDEX idx_users_email ON users(email);
+
+-- Chat and analytics indexes
+CREATE INDEX idx_chat_messages_conversation_id ON chat_messages(conversation_id);
+CREATE INDEX idx_chat_analytics_created_at ON chat_analytics(created_at);
+CREATE INDEX idx_query_history_user_id ON query_history(user_id);
+```
+
+<Tip>
+  All indexes are created automatically by the application. You don't need to create them manually.
+</Tip>
+
+---
+
+## Connection Pool Configuration
+
+Finance Agent uses connection pooling for optimal performance:
+
+### Development Settings
+
+```python
+# From config.py
+DEVELOPMENT_MIN_SIZE = 10  # Minimum connections
+DEVELOPMENT_MAX_SIZE = 50  # Maximum connections
+DEVELOPMENT_COMMAND_TIMEOUT = 30  # seconds
+DEVELOPMENT_TIMEOUT = 20  # seconds
+```
+
+### Production Settings
+
+```python
+# From config.py
+PRODUCTION_MIN_SIZE = 5   # Minimum connections
+PRODUCTION_MAX_SIZE = 30  # Maximum connections
+PRODUCTION_COMMAND_TIMEOUT = 20  # seconds
+PRODUCTION_TIMEOUT = 15  # seconds
+```
+
+The application automatically selects the appropriate configuration based on the `ENVIRONMENT` variable.
+
+---
+
+## Troubleshooting
+
+### pgvector Extension Not Found
+
+**Error**: `ERROR:  extension "vector" does not exist`
+
+**Solution**:
+1. Verify pgvector is installed: `ls $(pg_config --pkglibdir) | grep vector`
+2. Reinstall pgvector (see installation steps above)
+3. Restart PostgreSQL: `sudo systemctl restart postgresql`
+
+---
+
+### Connection Pool Exhausted
+
+**Error**: `asyncpg.exceptions.TooManyConnectionsError`
+
+**Solution**:
+1. Increase `max_connections` in PostgreSQL:
+   ```sql
+   -- Check current setting
+   SHOW max_connections;
+   
+   -- Edit postgresql.conf
+   max_connections = 100
+   ```
+2. Restart PostgreSQL
+3. Adjust pool sizes in `config.py` if needed
+
+---
+
+### Slow Vector Queries
+
+**Symptom**: Vector similarity searches taking >1 second
+
+**Solution**:
+1. Ensure vector indexes exist:
+   ```sql
+   SELECT indexname FROM pg_indexes WHERE tablename = 'transcript_chunks';
+   ```
+2. Rebuild indexes if needed:
+   ```sql
+   REINDEX INDEX CONCURRENTLY transcript_chunks_embedding_idx;
+   ```
+3. Enable debug mode to see query plans:
+   ```bash
+   RAG_DEBUG_MODE=true
+   ```
+
+---
+
+### Database Locks
+
+**Error**: `deadlock detected`
+
+**Solution**:
+1. Check for long-running queries:
+   ```sql
+   SELECT pid, now() - query_start as duration, query 
+   FROM pg_stat_activity 
+   WHERE state = 'active' AND now() - query_start > interval '5 minutes';
+   ```
+2. Kill problematic queries if needed:
+   ```sql
+   SELECT pg_terminate_backend(pid);
+   ```
+
+---
+
+## Production Recommendations
+
+<Warning>
+  These settings are critical for production deployments.
+</Warning>
+
+### Security
+
+1. **Use strong passwords** for database users
+2. **Enable SSL/TLS** for database connections:
+   ```bash
+   DATABASE_URL=postgresql://user:pass@host:5432/db?sslmode=require
+   ```
+3. **Restrict network access** using firewall rules
+4. **Enable connection limits** per user:
+   ```sql
+   ALTER USER finance_agent CONNECTION LIMIT 50;
+   ```
+
+### Performance
+
+1. **Enable query logging** for monitoring:
+   ```sql
+   -- In postgresql.conf
+   log_min_duration_statement = 1000  # Log queries > 1 second
+   ```
+2. **Configure shared_buffers** (25% of RAM):
+   ```sql
+   shared_buffers = 4GB
+   ```
+3. **Enable autovacuum** for maintenance:
+   ```sql
+   autovacuum = on
+   ```
+4. **Monitor table bloat** and run VACUUM regularly
+
+### Backup
+
+1. **Set up automated backups**:
+   ```bash
+   # Daily backup
+   pg_dump -U postgres stratalens > backup_$(date +%Y%m%d).sql
+   ```
+2. **Use point-in-time recovery** (PITR) with WAL archiving
+3. **Test restore procedures** regularly
+
+---
+
+## Next Steps
+
+- [Complete Local Setup](/development/local-setup)
+- [Configure Environment Variables](/development/environment-variables)
+- [Learn About Data Ingestion](/data-ingestion/overview)
+- [Explore the RAG System](/agent-system/overview)

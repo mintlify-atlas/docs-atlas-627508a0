@@ -1,0 +1,353 @@
+---
+title: 'Chat'
+description: 'AI-powered financial analysis with streaming responses'
+icon: 'comments'
+---
+
+## Overview
+
+The Chat API provides AI-powered financial analysis using a RAG (Retrieval-Augmented Generation) system. It searches across earnings transcripts, 10-K filings, and financial news to answer complex financial questions.
+
+## Stream Chat Message (Authenticated)
+
+Stream an AI-generated response with real-time progress updates.
+
+**Endpoint**: `POST /message/stream-v2`
+
+**Authentication**: Required
+
+<CodeGroup>
+```bash cURL
+curl -N -X POST https://api.financeagent.com/message/stream-v2 \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What were Tesla'\'s revenue trends in Q4 2024?",
+    "comprehensive": true,
+    "conversation_id": null
+  }'
+```
+
+```python Python
+import requests
+import json
+
+url = "https://api.financeagent.com/message/stream-v2"
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Content-Type": "application/json"
+}
+payload = {
+    "message": "What were Tesla's revenue trends in Q4 2024?",
+    "comprehensive": True,
+    "conversation_id": None
+}
+
+response = requests.post(url, headers=headers, json=payload, stream=True)
+
+for line in response.iter_lines():
+    if line:
+        line = line.decode('utf-8')
+        if line.startswith('data: '):
+            event = json.loads(line[6:])
+            print(event)
+```
+</CodeGroup>
+
+### Request Body
+
+<ParamField body="message" type="string" required>
+  User question (max 1000 characters)
+</ParamField>
+
+<ParamField body="comprehensive" type="boolean" default={true}>
+  Whether to use comprehensive search (slower but more thorough)
+</ParamField>
+
+<ParamField body="conversation_id" type="string">
+  Existing conversation ID to continue a thread (null for new conversation)
+</ParamField>
+
+### Streaming Response Events
+
+The endpoint returns Server-Sent Events (SSE) in the following format:
+
+```
+data: {"type": "event_type", "message": "...", "data": {...}}
+```
+
+#### Event Types
+
+<ResponseField name="progress" type="event">
+  Search and analysis progress updates
+  ```json
+  {"type": "progress", "message": "Searching earnings transcripts..."}
+  ```
+</ResponseField>
+
+<ResponseField name="reasoning" type="event">
+  AI reasoning steps during analysis
+  ```json
+  {"type": "reasoning", "message": "Analyzing Tesla Q4 2024 data"}
+  ```
+</ResponseField>
+
+<ResponseField name="token" type="event">
+  Streaming answer tokens (word-by-word)
+  ```json
+  {"type": "token", "data": {"token": "revenue"}}
+  ```
+</ResponseField>
+
+<ResponseField name="result" type="event">
+  Final complete answer with citations
+  ```json
+  {
+    "type": "result",
+    "conversation_id": "uuid",
+    "data": {
+      "response": {
+        "answer": "Tesla's Q4 2024 revenue was $25.7B...",
+        "citations": [
+          {
+            "company": "TSLA",
+            "quarter": "2024_q4",
+            "chunk_text": "Revenue for Q4 2024 was...",
+            "relevance_score": 0.95,
+            "citation_type": "transcript"
+          }
+        ]
+      },
+      "timing": {
+        "total_time": 3.45,
+        "search_time": 1.2,
+        "generation_time": 2.25
+      }
+    }
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="error" type="event">
+  Error during processing
+  ```json
+  {
+    "type": "error",
+    "message": "Rate limit exceeded",
+    "error": "RATE_LIMIT_EXCEEDED"
+  }
+  ```
+</ResponseField>
+
+### Response Headers
+
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+X-Accel-Buffering: no
+```
+
+## Stream Demo Chat (Public)
+
+Public demo endpoint with limited functionality.
+
+**Endpoint**: `POST /landing/demo/stream-v2`
+
+**Authentication**: Not required
+
+```bash cURL
+curl -N -X POST https://api.financeagent.com/landing/demo/stream-v2 \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What is Apple'\'s market cap?",
+    "comprehensive": false,
+    "session_id": "demo-session-123"
+  }'
+```
+
+<ParamField body="message" type="string" required>
+  User question
+</ParamField>
+
+<ParamField body="comprehensive" type="boolean" default={false}>
+  Search mode (limited in demo)
+</ParamField>
+
+<ParamField body="session_id" type="string">
+  Client-generated session ID for rate limiting
+</ParamField>
+
+<Info>
+  Demo endpoint is limited to 5 messages per session and may have reduced functionality.
+</Info>
+
+## Get Chat History
+
+Retrieve past chat messages with filtering and pagination.
+
+**Endpoint**: `GET /history`
+
+**Authentication**: Required
+
+```bash cURL
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  "https://api.financeagent.com/history?limit=50&offset=0&search=Tesla"
+```
+
+### Query Parameters
+
+<ParamField query="limit" type="integer" default={50}>
+  Maximum number of messages to return (max 100)
+</ParamField>
+
+<ParamField query="offset" type="integer" default={0}>
+  Number of messages to skip for pagination
+</ParamField>
+
+<ParamField query="search" type="string">
+  Search term to filter messages
+</ParamField>
+
+<ParamField query="date_from" type="string">
+  Filter messages from date (YYYY-MM-DD)
+</ParamField>
+
+<ParamField query="date_to" type="string">
+  Filter messages to date (YYYY-MM-DD)
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Request status
+</ResponseField>
+
+<ResponseField name="messages" type="array">
+  Array of chat history items
+  <Expandable title="message object">
+    <ResponseField name="id" type="string">
+      Message UUID
+    </ResponseField>
+    <ResponseField name="user_message" type="string">
+      Original user question
+    </ResponseField>
+    <ResponseField name="assistant_response" type="string">
+      AI-generated answer
+    </ResponseField>
+    <ResponseField name="citations" type="array">
+      Array of citation objects
+    </ResponseField>
+    <ResponseField name="created_at" type="string">
+      Timestamp (ISO 8601)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="total_count" type="integer">
+  Total number of messages
+</ResponseField>
+
+## Get Chat Statistics
+
+Retrieve chat usage statistics for the current user.
+
+**Endpoint**: `GET /stats`
+
+**Authentication**: Required
+
+```bash cURL
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  https://api.financeagent.com/stats
+```
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Request status
+</ResponseField>
+
+<ResponseField name="stats" type="object">
+  Usage statistics
+  <Expandable title="properties">
+    <ResponseField name="total_messages" type="integer">
+      Total chat messages sent
+    </ResponseField>
+    <ResponseField name="active_days" type="integer">
+      Number of days with activity
+    </ResponseField>
+    <ResponseField name="first_message" type="string">
+      Timestamp of first message
+    </ResponseField>
+    <ResponseField name="last_message" type="string">
+      Timestamp of most recent message
+    </ResponseField>
+    <ResponseField name="avg_question_length" type="number">
+      Average question length in characters
+    </ResponseField>
+    <ResponseField name="avg_response_length" type="number">
+      Average response length in characters
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Citation Types
+
+The chat API returns citations from three sources:
+
+### Transcript Citations
+
+```json
+{
+  "citation_type": "transcript",
+  "company": "AAPL",
+  "year": 2024,
+  "quarter": "2024_q4",
+  "chunk_text": "Revenue increased 6% year over year...",
+  "relevance_score": 0.92,
+  "transcript_available": true
+}
+```
+
+### News Citations
+
+```json
+{
+  "citation_type": "news",
+  "title": "Apple Reports Q4 Earnings Beat",
+  "url": "https://news.example.com/apple-earnings",
+  "published_date": "2024-11-01",
+  "chunk_text": "Apple Inc. reported better than expected...",
+  "relevance_score": 0.88
+}
+```
+
+### 10-K Citations
+
+```json
+{
+  "citation_type": "10-K",
+  "ticker": "MSFT",
+  "fiscal_year": 2024,
+  "section": "Risk Factors",
+  "chunk_text": "Our business is subject to various risks...",
+  "relevance_score": 0.85
+}
+```
+
+## Rate Limiting
+
+Chat endpoints are subject to rate limits:
+
+- **Authenticated**: 20 requests/month (standard), 100 requests/month (admin)
+- **Demo**: 5 messages per session
+
+When rate limited, you'll receive an error event:
+
+```json
+{
+  "type": "error",
+  "error": "RATE_LIMIT_EXCEEDED",
+  "message": "Monthly limit exceeded. Maximum 20 requests per month."
+}
+```

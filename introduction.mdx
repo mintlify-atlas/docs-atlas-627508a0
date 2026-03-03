@@ -1,0 +1,170 @@
+---
+title: Introduction
+description: AI-powered equity research platform with RAG-based analysis of earnings calls, SEC filings, and real-time news
+---
+
+# Welcome to Finance Agent
+
+Finance Agent is an AI-powered equity research platform that provides instant answers from authoritative financial documents. Ask questions and get precise, cited responses from 10-K filings, earnings calls, and market news.
+
+<Note>
+**Live Platform:** [www.stratalens.ai](https://www.stratalens.ai)
+</Note>
+
+## What is Finance Agent?
+
+Unlike generic LLMs that rely on web content, Finance Agent uses the same authoritative documents that professional analysts depend on:
+
+- **Earnings Transcripts** (2020-2025) - Word-for-word executive commentary from earnings calls
+- **SEC 10-K Filings** (2018-2025) - Official annual reports via specialized retrieval agent
+- **Real-Time News** - Latest market developments via Tavily search
+- **Financial Screener** - Natural language queries over company fundamentals (in development)
+
+## How it works
+
+Finance Agent uses an advanced **Retrieval-Augmented Generation (RAG)** system with three key innovations:
+
+<CardGroup cols={3}>
+  <Card title="Semantic routing" icon="route">
+    Routes to data sources based on question intent, not keywords. Questions about executive compensation automatically use 10-K filings, while quarterly performance questions search earnings transcripts.
+  </Card>
+  
+  <Card title="Research planning" icon="brain">
+    The agent explains its reasoning before searching: "I need to find Azure revenue figures, management commentary on competitive positioning, and forward guidance."
+  </Card>
+  
+  <Card title="Iterative improvement" icon="arrows-rotate">
+    Evaluates answer quality and searches for additional context until confident. Achieves 91% accuracy on the FinanceBench benchmark.
+  </Card>
+</CardGroup>
+
+## Core features
+
+<CardGroup cols={2}>
+  <Card title="Multi-source RAG" icon="database">
+    Combines earnings transcripts, SEC 10-K filings, and news into unified responses with proper citations.
+  </Card>
+  
+  <Card title="Specialized SEC agent" icon="file-contract">
+    Dedicated retrieval agent for 10-K filings with section-level routing, table selection, and hybrid search. 91% accuracy on FinanceBench.
+  </Card>
+  
+  <Card title="Parallel processing" icon="diagram-project">
+    Multi-ticker questions run per-company searches in parallel, then synthesize results into comparative analysis.
+  </Card>
+  
+  <Card title="Real-time streaming" icon="tower-broadcast">
+    Watch the agent's reasoning, see retrieved sources, and get answers progressively as they're generated.
+  </Card>
+</CardGroup>
+
+## Performance
+
+<Note>
+**Benchmark Results:**
+- 91% accuracy on [FinanceBench](https://github.com/patronus-ai/financebench) (112 10-K questions)
+- Average response time: ~10 seconds per question
+- Evaluated using LLM-as-a-judge methodology
+</Note>
+
+## Example queries
+
+Finance Agent handles diverse financial questions:
+
+```
+"What was Apple's Q4 2024 revenue?"
+→ Routes to earnings transcripts
+
+"What is Tim Cook's compensation?"
+→ Routes to 10-K filings (executive compensation only in SEC reports)
+
+"Show me Microsoft's balance sheet"
+→ Routes to 10-K financial statements
+
+"Compare MSFT and GOOGL cloud revenue"
+→ Parallel search across both companies with synthesis
+
+"What's the latest news on NVIDIA?"
+→ Routes to real-time news search
+```
+
+## Architecture
+
+The agent executes a 6-stage pipeline for each question:
+
+<Steps>
+  <Step title="Setup & initialization">
+    Load RAG components, search engines, and available data quarters
+  </Step>
+  
+  <Step title="Question analysis">
+    Extract tickers, time periods, and semantic intent. Route to appropriate data sources (transcripts, 10-K, news, or hybrid).
+  </Step>
+  
+  <Step title="Research planning">
+    Generate reasoning statement and search plan. Resolve temporal references like "last 3 quarters" to specific dates.
+  </Step>
+  
+  <Step title="Data retrieval">
+    Execute hybrid vector + keyword search. For 10-K questions, invoke specialized SEC agent with iterative retrieval.
+  </Step>
+  
+  <Step title="Iterative improvement">
+    Evaluate answer quality (completeness, specificity, accuracy). Generate follow-up searches if needed. Stop when confidence threshold met.
+  </Step>
+  
+  <Step title="Final assembly">
+    Stream final answer with citations, source attributions, and metadata (confidence scores, chunks used).
+  </Step>
+</Steps>
+
+## Tech stack
+
+- **Backend:** FastAPI, PostgreSQL (pgvector), DuckDB
+- **AI/ML:** Cerebras (Qwen-3-235B), OpenAI (fallback), iterative self-improvement
+- **Search:** Hybrid vector (pgvector) + TF-IDF with cross-encoder reranking
+- **Frontend:** React + TypeScript, Tailwind CSS
+
+## Getting started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get from zero to your first query in minutes
+  </Card>
+  
+  <Card title="Installation" icon="download" href="/installation">
+    Complete installation guide with all dependencies
+  </Card>
+  
+  <Card title="Agent system" icon="robot" href="/agent-system">
+    Deep dive into RAG architecture and semantic routing
+  </Card>
+  
+  <Card title="API reference" icon="code" href="/api-reference">
+    Explore REST and WebSocket endpoints
+  </Card>
+</CardGroup>
+
+## Use cases
+
+Finance Agent is designed for:
+
+- **Equity research analysts** - Quick access to earnings call commentary and SEC filing data
+- **Portfolio managers** - Multi-company comparisons and trend analysis
+- **Financial advisors** - Client-ready summaries with proper citations
+- **Developers** - API access for building financial applications
+- **Researchers** - Benchmark dataset for financial QA systems
+
+## What's next?
+
+Explore the documentation to learn more:
+
+- [Quickstart guide](/quickstart) - Run your first query
+- [Installation](/installation) - Set up your own instance
+- [Agent system](/agent-system) - Understand the RAG pipeline
+- [SEC agent](/sec-agent) - Learn about 10-K retrieval
+- [API reference](/api-reference) - Integrate with your applications
+
+<Warning>
+Finance Agent is designed for research and analysis. Always verify critical information with original source documents before making investment decisions.
+</Warning>

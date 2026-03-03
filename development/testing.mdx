@@ -1,0 +1,449 @@
+---
+title: 'Testing Guide'
+description: 'How to test Finance Agent locally'
+---
+
+This guide covers testing practices for Finance Agent. While a comprehensive test suite is under development, you can test the application locally using the methods described below.
+
+## Current Testing Status
+
+<Note>
+Finance Agent is actively developing a formal testing framework. Currently, testing is primarily done through:
+- Manual API testing via Swagger UI
+- Local development server testing
+- Production validation via FinanceBench (91% accuracy on 10-K questions)
+</Note>
+
+Contributions to expand test coverage are welcome! See the [Contributing Guide](/development/contributing) for how to get involved.
+
+## Local Testing
+
+### Running the Development Server
+
+<Steps>
+<Step title="Start the server">
+
+```bash
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
+
+The `--reload` flag enables auto-reloading when code changes.
+
+</Step>
+
+<Step title="Access the application">
+
+Open your browser to:
+- **Frontend**: `http://localhost:8000`
+- **API Documentation**: `http://localhost:8000/docs` (Swagger UI)
+- **Alternative API Docs**: `http://localhost:8000/redoc` (ReDoc)
+
+</Step>
+</Steps>
+
+### Testing API Endpoints
+
+#### Using Swagger UI
+
+The interactive API documentation at `http://localhost:8000/docs` allows you to test endpoints directly:
+
+<Steps>
+<Step title="Navigate to Swagger UI">
+
+Open `http://localhost:8000/docs` in your browser.
+
+</Step>
+
+<Step title="Expand an endpoint">
+
+Click on any endpoint (e.g., `POST /message/stream-v2`) to see details.
+
+</Step>
+
+<Step title="Try it out">
+
+Click **Try it out**, fill in the request parameters, and click **Execute**.
+
+</Step>
+
+<Step title="View response">
+
+Swagger will show the response status, headers, and body.
+
+</Step>
+</Steps>
+
+#### Using cURL
+
+Test endpoints from the command line:
+
+<CodeGroup>
+```bash Search Companies
+curl -X GET "http://localhost:8000/companies/search?query=apple" \
+  -H "accept: application/json"
+```
+
+```bash Get Transcript
+curl -X GET "http://localhost:8000/transcript/AAPL/2024/4" \
+  -H "accept: application/json"
+```
+
+```bash RAG Chat Query
+curl -X POST "http://localhost:8000/message/stream-v2" \
+  -H "Content-Type: application/json" \
+  -H "accept: application/json" \
+  -d '{
+    "message": "What was Apple revenue in Q4 2024?",
+    "conversation_id": "test-123"
+  }'
+```
+</CodeGroup>
+
+#### Using Python Requests
+
+Test programmatically with Python:
+
+```python
+import requests
+import json
+
+BASE_URL = "http://localhost:8000"
+
+# Test company search
+response = requests.get(f"{BASE_URL}/companies/search", params={"query": "microsoft"})
+print(response.json())
+
+# Test RAG chat
+response = requests.post(
+    f"{BASE_URL}/message/stream-v2",
+    json={
+        "message": "What is Microsoft's cloud revenue?",
+        "conversation_id": "test-conv-1"
+    }
+)
+print(response.json())
+```
+
+## Testing Key Features
+
+### Testing the RAG Agent
+
+The core RAG agent can be tested in several ways:
+
+#### 1. Via API Endpoint
+
+Use the streaming chat endpoint:
+
+```bash
+curl -X POST "http://localhost:8000/message/stream-v2" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What did Apple say about iPhone sales in Q4 2024?",
+    "conversation_id": "test-123"
+  }'
+```
+
+#### 2. Direct Python Usage
+
+Test the agent directly in Python:
+
+```python
+import asyncio
+from agent import create_agent
+
+async def test_rag_agent():
+    agent = create_agent()
+    
+    # Test earnings transcript question
+    async for event in agent.execute_rag_flow(
+        question="What was Apple's Q4 2024 revenue?",
+        stream=True
+    ):
+        if event['type'] == 'reasoning':
+            print(f"Planning: {event['message']}")
+        elif event['type'] == 'result':
+            print(f"Answer: {event['data']['answer']}")
+
+asyncio.run(test_rag_agent())
+```
+
+### Testing Data Sources
+
+#### Earnings Transcripts
+
+Test transcript search and retrieval:
+
+```python
+from agent.rag.search_engine import search_similar_chunks
+import asyncpg
+
+async def test_transcript_search():
+    conn = await asyncpg.connect(DATABASE_URL)
+    
+    results = await search_similar_chunks(
+        query="revenue growth",
+        top_k=10,
+        quarter="2024_q4",
+        ticker="AAPL",
+        db=conn
+    )
+    
+    for chunk in results:
+        print(f"Score: {chunk['score']}, Text: {chunk['chunk_text'][:100]}")
+    
+    await conn.close()
+```
+
+#### SEC 10-K Filings
+
+Test the SEC agent:
+
+```python
+from agent.rag.sec_filings_service_smart_parallel import SECFilingsService
+
+async def test_sec_agent():
+    service = SECFilingsService()
+    
+    result = await service.search_10k(
+        question="What was Tim Cook's compensation in 2023?",
+        ticker="AAPL",
+        year=2023
+    )
+    
+    print(f"Answer: {result['answer']}")
+    print(f"Citations: {result['citations']}")
+```
+
+#### News Search
+
+Test Tavily news integration:
+
+```python
+from agent.rag.tavily_service import TavilyService
+
+def test_news_search():
+    service = TavilyService()
+    
+    results = service.search_news(
+        query="NVIDIA latest developments",
+        max_results=5
+    )
+    
+    print(f"Summary: {results['answer']}")
+    for article in results['results']:
+        print(f"- {article['title']}: {article['url']}")
+```
+
+## Testing Configuration
+
+### Environment Variables
+
+For testing, you may want to use different configuration:
+
+```bash
+# .env.test
+ENVIRONMENT=development
+RAG_DEBUG_MODE=true
+AUTH_DISABLED=true
+LOG_LEVEL=DEBUG
+```
+
+Load test environment:
+
+```bash
+cp .env.test .env
+python -m uvicorn app.main:app --reload
+```
+
+### Debug Mode
+
+Enable debug mode for verbose logging:
+
+```python
+# config.py or .env
+RAG_DEBUG_MODE = True
+LOG_LEVEL = "DEBUG"
+```
+
+This will output detailed information about:
+- Question analysis and routing decisions
+- Search queries and results
+- Agent reasoning and iterations
+- LLM prompts and responses
+
+## Performance Testing
+
+### Response Time Testing
+
+Measure API response times:
+
+```python
+import time
+import requests
+
+BASE_URL = "http://localhost:8000"
+
+questions = [
+    "What was Apple's Q4 2024 revenue?",
+    "What is Microsoft's cloud strategy?",
+    "Compare AAPL and MSFT revenue growth"
+]
+
+for question in questions:
+    start = time.time()
+    response = requests.post(
+        f"{BASE_URL}/message/stream-v2",
+        json={"message": question, "conversation_id": "perf-test"}
+    )
+    elapsed = time.time() - start
+    print(f"Question: {question}")
+    print(f"Time: {elapsed:.2f}s")
+    print(f"Status: {response.status_code}\n")
+```
+
+### Database Query Performance
+
+Test search performance:
+
+```python
+import asyncpg
+import time
+
+async def benchmark_search():
+    conn = await asyncpg.connect(DATABASE_URL)
+    
+    queries = [
+        "revenue growth",
+        "operating expenses",
+        "guidance outlook"
+    ]
+    
+    for query in queries:
+        start = time.time()
+        results = await conn.fetch(
+            """
+            SELECT chunk_text, embedding <-> $1 AS distance
+            FROM transcript_chunks
+            WHERE ticker = $2
+            ORDER BY distance
+            LIMIT 10
+            """,
+            query_embedding, "AAPL"
+        )
+        elapsed = time.time() - start
+        print(f"Query '{query}': {elapsed:.3f}s, {len(results)} results")
+    
+    await conn.close()
+```
+
+## Validation Testing
+
+### FinanceBench Evaluation
+
+Finance Agent is validated against the [FinanceBench](https://github.com/patronus-ai/financebench) dataset:
+
+<Info>
+**Current benchmark:** 91% accuracy on 112 10-K questions, averaging ~10 seconds per question
+</Info>
+
+While the formal evaluation scripts are in the `experiments/` directory (excluded from the repository), you can test individual FinanceBench questions:
+
+```python
+from agent import create_agent
+
+async def test_financebench_question():
+    agent = create_agent()
+    
+    question = "What was Apple's total debt in fiscal 2023?"
+    expected_answer = "$111.1 billion"  # From FinanceBench ground truth
+    
+    result = await agent.execute_rag_flow_async(question=question)
+    
+    print(f"Question: {question}")
+    print(f"Expected: {expected_answer}")
+    print(f"Got: {result['answer']}")
+    print(f"Confidence: {result['metadata']['confidence']}")
+```
+
+## Troubleshooting Tests
+
+### Common Issues
+
+<AccordionGroup>
+<Accordion title="Database connection errors">
+
+Ensure PostgreSQL is running and the `DATABASE_URL` is correct:
+
+```bash
+# Test database connection
+psql $DATABASE_URL -c "SELECT 1;"
+
+# Check pgvector extension
+psql $DATABASE_URL -c "SELECT * FROM pg_extension WHERE extname = 'vector';"
+```
+
+</Accordion>
+
+<Accordion title="Missing API keys">
+
+Verify all required API keys are set in `.env`:
+
+```bash
+# Check environment variables
+echo $OPENAI_API_KEY
+echo $CEREBRAS_API_KEY
+echo $API_NINJAS_KEY
+```
+
+</Accordion>
+
+<Accordion title="Import errors">
+
+Ensure all dependencies are installed:
+
+```bash
+pip install -r requirements.txt
+```
+
+</Accordion>
+
+<Accordion title="Slow query performance">
+
+Check database indexes:
+
+```sql
+-- Ensure vector index exists
+CREATE INDEX IF NOT EXISTS idx_transcript_chunks_embedding 
+  ON transcript_chunks USING ivfflat (embedding vector_cosine_ops)
+  WITH (lists = 100);
+
+-- Check query plan
+EXPLAIN ANALYZE 
+SELECT * FROM transcript_chunks 
+WHERE ticker = 'AAPL' AND year = 2024 
+ORDER BY embedding <-> '[...]' 
+LIMIT 10;
+```
+
+</Accordion>
+</AccordionGroup>
+
+## Future Testing Plans
+
+<Note>
+Upcoming test framework improvements:
+- Unit tests for core agent components
+- Integration tests for API endpoints
+- Automated regression testing
+- Performance benchmarking suite
+- Mock data fixtures for testing without external APIs
+</Note>
+
+Interested in contributing to testing infrastructure? See the [Contributing Guide](/development/contributing) to get started.
+
+## Additional Resources
+
+- [Agent System Documentation](https://github.com/kamathhrishi/stratalensai/blob/main/agent/README.md)
+- [SEC Agent Documentation](https://github.com/kamathhrishi/stratalensai/blob/main/docs/SEC_AGENT.md)
+- [Data Ingestion Guide](https://github.com/kamathhrishi/stratalensai/blob/main/agent/rag/data_ingestion/README.md)
+- [FastAPI Testing Documentation](https://fastapi.tiangolo.com/tutorial/testing/)

@@ -1,0 +1,247 @@
+---
+title: 'Authentication'
+description: 'Authenticate and manage user sessions'
+icon: 'lock'
+---
+
+## Overview
+
+The Finance Agent API uses JWT (JSON Web Tokens) for authentication. After obtaining a token, include it in the `Authorization` header for all authenticated requests.
+
+## Register User
+
+Create a new user account.
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.financeagent.com/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@company.com",
+    "username": "johndoe",
+    "password": "SecurePass123!",
+    "full_name": "John Doe",
+    "company": "Acme Corp"
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "https://api.financeagent.com/auth/register",
+    json={
+        "email": "user@company.com",
+        "username": "johndoe",
+        "password": "SecurePass123!",
+        "full_name": "John Doe",
+        "company": "Acme Corp"
+    }
+)
+print(response.json())
+```
+</CodeGroup>
+
+<ParamField body="email" type="string" required>
+  User email address (must be unique)
+</ParamField>
+
+<ParamField body="username" type="string" required>
+  Username (must be unique)
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  Password (minimum 8 characters)
+</ParamField>
+
+<ParamField body="full_name" type="string">
+  User's full name
+</ParamField>
+
+<ParamField body="company" type="string">
+  Company name
+</ParamField>
+
+<ResponseField name="success" type="boolean">
+  Whether registration was successful
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Success or error message
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  Created user information
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      User UUID
+    </ResponseField>
+    <ResponseField name="email" type="string">
+      User email
+    </ResponseField>
+    <ResponseField name="username" type="string">
+      Username
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Login
+
+Authenticate and receive a JWT token.
+
+<CodeGroup>
+```bash cURL
+curl -X POST https://api.financeagent.com/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@company.com",
+    "password": "SecurePass123!"
+  }'
+```
+
+```python Python
+import requests
+
+response = requests.post(
+    "https://api.financeagent.com/auth/login",
+    json={
+        "email": "user@company.com",
+        "password": "SecurePass123!"
+    }
+)
+token = response.json()["access_token"]
+```
+</CodeGroup>
+
+<ParamField body="email" type="string" required>
+  User email address
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User password
+</ParamField>
+
+<ResponseField name="success" type="boolean">
+  Whether login was successful
+</ResponseField>
+
+<ResponseField name="access_token" type="string">
+  JWT access token (valid for 24 hours)
+</ResponseField>
+
+<ResponseField name="token_type" type="string">
+  Token type (always "bearer")
+</ResponseField>
+
+<ResponseField name="user" type="object">
+  Authenticated user information
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      User UUID
+    </ResponseField>
+    <ResponseField name="email" type="string">
+      User email
+    </ResponseField>
+    <ResponseField name="is_admin" type="boolean">
+      Whether user has admin privileges
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Using the Token
+
+Include the JWT token in the `Authorization` header for all authenticated requests:
+
+```bash
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  https://api.financeagent.com/user/profile
+```
+
+## Get User Profile
+
+Retrieve the current user's profile information.
+
+```bash cURL
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  https://api.financeagent.com/user/profile
+```
+
+**Requires Authentication**: Yes
+
+<ResponseField name="id" type="string">
+  User UUID
+</ResponseField>
+
+<ResponseField name="username" type="string">
+  Username
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  Email address
+</ResponseField>
+
+<ResponseField name="full_name" type="string">
+  Full name
+</ResponseField>
+
+<ResponseField name="company" type="string">
+  Company name
+</ResponseField>
+
+<ResponseField name="is_admin" type="boolean">
+  Admin status
+</ResponseField>
+
+<ResponseField name="created_at" type="string">
+  Account creation timestamp (ISO 8601)
+</ResponseField>
+
+## Get Usage Statistics
+
+Retrieve usage statistics for rate limiting and billing.
+
+```bash cURL
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  https://api.financeagent.com/user/usage
+```
+
+**Requires Authentication**: Yes
+
+<ResponseField name="total_requests" type="integer">
+  Total lifetime requests
+</ResponseField>
+
+<ResponseField name="monthly_requests" type="integer">
+  Requests this month
+</ResponseField>
+
+<ResponseField name="total_cost" type="number">
+  Total lifetime cost ($0.02 per request)
+</ResponseField>
+
+<ResponseField name="monthly_cost" type="number">
+  Cost this month
+</ResponseField>
+
+<ResponseField name="rate_limit_remaining" type="integer">
+  Remaining requests this minute
+</ResponseField>
+
+<ResponseField name="monthly_limit_remaining" type="integer">
+  Remaining requests this month
+</ResponseField>
+
+## Token Expiration
+
+JWT tokens expire after 24 hours. When a token expires, you'll receive a `401 Unauthorized` response. Simply log in again to obtain a new token.
+
+## Security Best Practices
+
+<Warning>
+  Never expose your JWT token in client-side code or public repositories.
+</Warning>
+
+- Store tokens securely (e.g., in environment variables or secure storage)
+- Use HTTPS for all API requests
+- Implement token refresh logic before expiration
+- Rotate tokens regularly in production environments

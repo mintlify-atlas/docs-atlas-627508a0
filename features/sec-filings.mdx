@@ -1,0 +1,295 @@
+---
+title: 'SEC Filings'
+description: 'Retrieve data from official 10-K annual reports with intelligent section routing'
+icon: 'file-contract'
+---
+
+## Overview
+
+SEC Filings is Finance Agent's specialized retrieval system for extracting information from **10-K annual reports** (2018-2025). When you need audited financial statements, executive compensation, risk factors, or detailed business descriptions, this feature routes your query to the official SEC documents that professional analysts rely on.
+
+**Current Scope**: 10-K filings only (annual reports). Support for 10-Q (quarterly) and 8-K (current events) is in development.
+
+<CardGroup cols={2}>
+  <Card title="Planning-Driven Retrieval" icon="route">
+    Generates sub-questions and searches multiple sections in parallel for comprehensive coverage
+  </Card>
+  <Card title="Intelligent Section Routing" icon="map-location-dot">
+    LLM automatically routes queries to relevant 10-K sections (Item 1, Item 7, Item 8, etc.)
+  </Card>
+  <Card title="Smart Table Selection" icon="table">
+    LLM selects relevant financial tables from income statements, balance sheets, and cash flow statements
+  </Card>
+  <Card title="91% Accuracy" icon="award">
+    Achieved 91% accuracy on FinanceBench (112 10-K questions), ~10s per question
+  </Card>
+</CardGroup>
+
+## How It Works
+
+The SEC Filings agent is a **dedicated retrieval agent** optimized for structured 10-K documents. When the main agent determines your question requires 10-K data (via semantic routing), it invokes this specialized agent:
+
+1. **Smart Planning** - Breaks down your question into sub-questions and creates a search plan (table vs text queries)
+2. **Parallel Retrieval** - Executes all searches simultaneously (up to 6 workers)
+   - **Table searches**: LLM selects relevant tables from financial statements
+   - **Text searches**: Hybrid vector + keyword search with cross-encoder reranking
+3. **Answer Generation** - Synthesizes findings with [10K-N] citation markers
+4. **Iterative Refinement** - Evaluates quality (target 90%+) and replans if gaps exist (up to 5 iterations)
+
+<Note>
+**Why a separate agent?** SEC 10-K filings have unique structure (15 sections, complex tables, financial statements) requiring specialized retrieval strategies that differ from earnings transcript search.
+</Note>
+
+## What You Can Ask
+
+<AccordionGroup>
+  <Accordion title="Financial Statements">
+    Best for: Audited annual figures, balance sheets, income statements, cash flow statements
+    
+    - "What was Apple's total revenue in fiscal 2024?"
+    - "Show me Microsoft's balance sheet for 2023"
+    - "What was Google's cash and cash equivalents in 2024?"
+    - "Compare Amazon's total assets for 2023 and 2024"
+  </Accordion>
+  
+  <Accordion title="Executive Compensation">
+    Best for: CEO pay, stock awards, salaries, bonuses (ONLY available in 10-K, not in earnings transcripts)
+    
+    - "What was Tim Cook's total compensation in 2023?"
+    - "How much did Satya Nadella earn in 2024?"
+    - "What stock awards did the CEO receive?"
+    - "Show me executive compensation breakdown"
+  </Accordion>
+  
+  <Accordion title="Risk Factors">
+    Best for: Material risks, regulatory issues, legal proceedings
+    
+    - "What are Apple's main risk factors?"
+    - "What risks did Meta disclose about regulation?"
+    - "What legal proceedings is Tesla involved in?"
+  </Accordion>
+  
+  <Accordion title="Business Operations">
+    Best for: Business descriptions, segment breakdowns, workforce size, strategy
+    
+    - "How many employees does Microsoft have?"
+    - "What are Amazon's business segments?"
+    - "What products does Apple sell?"
+    - "Describe Google's revenue streams"
+  </Accordion>
+  
+  <Accordion title="Derived Metrics & Ratios">
+    Best for: Calculations requiring multiple line items
+    
+    - "What is Apple's debt-to-equity ratio?"
+    - "Calculate Microsoft's gross margin"
+    - "What is Amazon's revenue per employee?"
+    - "Show me R&D expense as a percentage of total operating expenses"
+  </Accordion>
+</AccordionGroup>
+
+## Query Examples
+
+### Executive Compensation
+```
+Question: What was Tim Cook's compensation in 2023?
+
+Answer:
+Tim Cook's total compensation for fiscal 2023 was **$63.2 million** [10K-1], consisting of:
+
+| Component | Amount |
+|-----------|--------|
+| Base Salary | **$3.0M** [10K-1] |
+| Stock Awards | **$47.0M** [10K-2] |
+| Non-Equity Incentive | **$10.7M** [10K-1] |
+| Other Compensation | **$2.5M** [10K-3] |
+
+This represents a 12% decrease from 2022's **$71.9M** [10K-1].
+```
+
+### Financial Statement Data
+```
+Question: What was Microsoft's total revenue in fiscal 2024?
+
+Answer:
+Microsoft reported total revenue of **$245.1 billion** for fiscal year 2024 [10K-1], 
+up **16%** from fiscal 2023's **$211.9 billion** [10K-2].
+
+**Revenue Breakdown** [10K-3]:
+- Productivity and Business Processes: **$69.3B**
+- Intelligent Cloud: **$96.8B**
+- More Personal Computing: **$59.7B**
+```
+
+### Derived Metric (Multi-Step Calculation)
+```
+Question: What is Apple's debt-to-equity ratio in 2024?
+
+Answer:
+Apple's debt-to-equity ratio for fiscal 2024 is **1.54**.
+
+**Calculation:**
+- Total Debt: **$106.6B** [10K-1] (long-term debt) + **$9.8B** [10K-2] (short-term) = **$116.4B**
+- Total Equity: **$75.5B** [10K-3]
+- Ratio: **$116.4B / $75.5B = 1.54**
+
+This represents an increase from 2023's ratio of **1.41** [10K-4][10K-5].
+```
+
+## SEC 10-K Section Guide
+
+The agent automatically routes queries to the most relevant sections:
+
+| Section | Contains | Example Queries |
+|---------|----------|----------------|
+| **Item 1** - Business | Company description, products, operations, **workforce size** | "How many employees?", "What products does X sell?", "Business segments" |
+| **Item 1A** - Risk Factors | Material risks, uncertainties | "What are the main risks?", "Regulatory concerns" |
+| **Item 7** - MD&A | Management analysis, trends, performance discussion | "Management commentary on growth", "Trends" |
+| **Item 8** - Financial Statements | Balance sheet, income statement, cash flow, **all financial line items** | "Total revenue", "Cash", "Assets", "Liabilities" |
+| **Item 10** - Directors | Board members, executives | "Who is on the board?" |
+| **Item 11** - Executive Compensation | **CEO pay, salaries, bonuses, stock awards** | "CEO compensation", "Executive pay" |
+
+<Warning>
+**Important**: Executive compensation data is ONLY available in 10-K filings (Item 11), never in earnings transcripts. Always use the SEC Filings feature for compensation queries.
+</Warning>
+
+## Features
+
+### Planning-Driven Search
+
+For complex queries, the agent decomposes your question into targeted sub-questions and creates a strategic search plan:
+
+**Example: "What is revenue per employee?"**
+```json
+{
+  "sub_questions": [
+    "What was total revenue?",
+    "How many employees does the company have?"
+  ],
+  "search_plan": [
+    {"query": "total revenue", "type": "table", "priority": 1},
+    {"query": "subscription professional services revenue", "type": "table", "priority": 2},
+    {"query": "number of employees", "type": "text", "priority": 1},
+    {"query": "human capital workforce", "type": "text", "priority": 2}
+  ]
+}
+```
+
+Each query is optimized:
+- **Short** (2-5 words) for better embedding matches
+- **Focused** (one concept per query, not multiple crammed together)
+- **No company names or years** (already filtered by ticker and fiscal year)
+
+### Parallel Multi-Query Retrieval
+
+All searches execute simultaneously:
+- **Table queries**: LLM selects top 5 relevant tables from available financial statements
+- **Text queries**: Hybrid vector + keyword search with cross-encoder reranking
+- Deduplicates and combines results
+
+### Smart Table Selection
+
+Rather than embedding-based table search, the agent uses LLM intelligence:
+
+1. Fetches all tables for the ticker/fiscal year
+2. Creates table summaries: path | section | content preview
+3. LLM analyzes summaries and selects most relevant tables
+4. Returns selected tables with full content (tables are never truncated)
+
+### Iterative Quality Control
+
+After generating an answer, the agent:
+1. **Evaluates** quality (0.0 to 1.0 scale)
+2. **Identifies** missing data points
+3. **Replans** with new search queries if quality < 90%
+4. **Repeats** up to 5 iterations until confident or max iterations reached
+
+### Citation Format
+
+All facts include **[10K-N]** citation markers:
+- **[10K-1]** = First 10-K chunk retrieved
+- **[10K-5]** = Fifth 10-K chunk
+- Citations link to the exact section, table, or text passage with ticker, fiscal year, and section metadata
+
+## Coverage
+
+- **Filing Type**: 10-K only (10-Q and 8-K coming soon)
+- **Years**: 2018-2025 (varies by company)
+- **Companies**: S&P 500 and major public companies
+- **Database**: PostgreSQL with pgvector for text chunks, structured JSONB for tables
+
+## Technical Details
+
+### Architecture
+```
+User Question → Main Agent (semantic routing)
+  ↓
+[Routes to SEC Agent if 10-K data needed]
+  ↓
+SEC Agent:
+  1. Plan Investigation (sub-questions + search plan)
+  2. Parallel Multi-Query Retrieval (6 workers)
+     - Table searches via LLM selection
+     - Text searches via hybrid + reranking
+  3. Generate Answer (with [10K-N] citations)
+  4. Evaluate Quality (target 90%+)
+  5. [If gaps] → Replan → Retrieve again (max 5 iterations)
+  ↓
+Return to Main Agent → Final response with [10K-N] citations
+```
+
+### Search Strategy
+
+**For Financial Line Items (revenue, COGS, assets, etc.):**
+- Type: `table`
+- LLM selects tables from income statements, balance sheets, cash flow statements
+- Full table content provided (never truncated)
+
+**For Narrative Data (business description, risks, workforce):**
+- Type: `text`
+- Hybrid vector (70%) + keyword (30%) search
+- Cross-encoder reranking for relevance
+- Section filtering (e.g. Item 1 for business, Item 1A for risks)
+
+## Best Practices
+
+<Steps>
+  <Step title="Know When to Use 10-K vs Transcripts">
+    - **10-K**: Annual data, audited financials, CEO compensation, full-year results
+    - **Transcripts**: Quarterly commentary, management outlook, recent performance
+  </Step>
+  
+  <Step title="Specify Fiscal Year">
+    Use explicit fiscal years ("fiscal 2024" or "FY2024") since companies define fiscal years differently.
+  </Step>
+  
+  <Step title="Ask for Calculations">
+    The agent handles derived metrics automatically:
+    - "Calculate gross margin" → retrieves revenue + COGS, computes margin
+    - "Debt-to-equity ratio" → retrieves debt + equity, computes ratio
+  </Step>
+  
+  <Step title="Use Comparative Queries">
+    "Compare X's total assets in 2023 and 2024" → agent retrieves both years and presents side-by-side
+  </Step>
+</Steps>
+
+## Limitations
+
+- **10-K Only**: No 10-Q (quarterly) or 8-K (current events) support yet
+- **Annual Data**: 10-K filings are annual, not quarterly (use earnings transcripts for quarterly data)
+- **Fiscal Year Confusion**: Companies define fiscal years differently (Apple FY2024 = Oct 2023 - Sep 2024)
+- **No Intra-Year Updates**: 10-K data is as of fiscal year-end, doesn't reflect mid-year changes
+
+## Benchmark Performance
+
+**FinanceBench Evaluation** (112 10-K questions):
+- **Accuracy**: 91%
+- **Speed**: ~10 seconds per question
+- **Method**: LLM-as-a-judge evaluation
+
+## Related Features
+
+- [Earnings Transcripts](/features/earnings-transcripts) - For quarterly earnings call commentary
+- [Real-Time News](/features/real-time-news) - For breaking developments
+- [Financial Screener](/features/financial-screener) - For screening stocks by fundamentals (coming soon)

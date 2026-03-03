@@ -1,0 +1,424 @@
+---
+title: 'Screener'
+description: 'Natural language queries for financial data screening'
+icon: 'filter'
+---
+
+## Overview
+
+The Screener API allows you to query financial data using natural language. It converts your questions into SQL queries, executes them against PostgreSQL databases, and returns formatted results with pagination and sorting.
+
+## Stream Query
+
+Execute a financial data query with streaming progress updates.
+
+**Endpoint**: `GET /screener/query/stream`
+
+**Authentication**: Required
+
+```bash cURL
+curl -N -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  "https://api.financeagent.com/screener/query/stream?question=Find%20tech%20companies%20with%20P/E%20ratio%20less%20than%2020&page=1&page_size=50"
+```
+
+### Query Parameters
+
+<ParamField query="question" type="string" required>
+  Natural language question about financial data (max 1000 characters)
+</ParamField>
+
+<ParamField query="page" type="integer" default={1}>
+  Page number for pagination
+</ParamField>
+
+<ParamField query="page_size" type="integer">
+  Results per page (max 1000, null for all results)
+</ParamField>
+
+### Streaming Response Events
+
+Returns Server-Sent Events (SSE):
+
+```
+data: {"type": "event_type", "message": "...", "data": {...}}
+```
+
+#### Event Types
+
+<ResponseField name="reasoning" type="event">
+  Query analysis and SQL generation reasoning
+  ```json
+  {"type": "reasoning", "message": "Analyzing question: tech companies with P/E < 20"}
+  ```
+</ResponseField>
+
+<ResponseField name="progress" type="event">
+  Query execution progress
+  ```json
+  {"type": "progress", "message": "Executing SQL query against database..."}
+  ```
+</ResponseField>
+
+<ResponseField name="result" type="event">
+  Final query results
+  ```json
+  {
+    "type": "result",
+    "data": {
+      "success": true,
+      "columns": ["symbol", "companyName", "peRatio", "marketCap"],
+      "friendly_columns": {
+        "symbol": "Symbol",
+        "companyName": "Company Name",
+        "peRatio": "P/E Ratio",
+        "marketCap": "Market Cap"
+      },
+      "data_rows": [
+        {"symbol": "AAPL", "companyName": "Apple Inc.", "peRatio": 18.5, "marketCap": 2500000000000},
+        {"symbol": "GOOGL", "companyName": "Alphabet Inc.", "peRatio": 19.2, "marketCap": 1800000000000}
+      ],
+      "total_rows": 45,
+      "pagination_info": {
+        "page": 1,
+        "page_size": 50,
+        "total_pages": 1,
+        "has_next": false
+      },
+      "sql_query_generated": "SELECT symbol, company_name, pe_ratio, market_cap FROM...",
+      "execution_time": 1.23
+    }
+  }
+  ```
+</ResponseField>
+
+<ResponseField name="error" type="event">
+  Query error
+  ```json
+  {
+    "type": "error",
+    "message": "Rate limit exceeded",
+    "error": "RATE_LIMIT_EXCEEDED"
+  }
+  ```
+</ResponseField>
+
+## Sort Results
+
+Sort cached query results server-side.
+
+**Endpoint**: `POST /screener/query/sort`
+
+**Authentication**: Required
+
+```bash cURL
+curl -X POST https://api.financeagent.com/screener/query/sort \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "column": "marketCap",
+    "direction": "desc",
+    "query_id": null
+  }'
+```
+
+### Request Body
+
+<ParamField body="column" type="string" required>
+  Column name to sort by (use database column names, not friendly names)
+</ParamField>
+
+<ParamField body="direction" type="string" required>
+  Sort direction: "asc" or "desc"
+</ParamField>
+
+<ParamField body="query_id" type="string">
+  Query ID to sort (null uses most recent query)
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Request status
+</ResponseField>
+
+<ResponseField name="data_rows" type="array">
+  Sorted data rows
+</ResponseField>
+
+<ResponseField name="columns" type="array">
+  Column names (database format)
+</ResponseField>
+
+<ResponseField name="friendly_columns" type="object">
+  Mapping of database columns to display names
+</ResponseField>
+
+<ResponseField name="sort_applied" type="object">
+  Applied sort parameters
+  <Expandable title="properties">
+    <ResponseField name="column" type="string">
+      Sorted column
+    </ResponseField>
+    <ResponseField name="direction" type="string">
+      Sort direction
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="total_rows" type="integer">
+  Total number of rows after sorting
+</ResponseField>
+
+## Paginate Results
+
+Paginate cached query results without re-executing the query.
+
+**Endpoint**: `POST /screener/query/paginate`
+
+**Authentication**: Required
+
+```bash cURL
+curl -X POST https://api.financeagent.com/screener/query/paginate \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Find tech companies with P/E ratio less than 20",
+    "page": 2,
+    "page_size": 50
+  }'
+```
+
+### Request Body
+
+<ParamField body="question" type="string" required>
+  Original question (used to find cached results)
+</ParamField>
+
+<ParamField body="page" type="integer" required>
+  Page number to retrieve
+</ParamField>
+
+<ParamField body="page_size" type="integer" required>
+  Results per page
+</ParamField>
+
+### Response
+
+Same structure as the streaming query result event.
+
+<Info>
+  Pagination requests don't count against rate limits since they use cached data.
+</Info>
+
+## Get Complete Dataset
+
+Retrieve the complete dataset for a query (bypasses pagination limits).
+
+**Endpoint**: `POST /screener/query/complete-dataset`
+
+**Authentication**: Required
+
+```bash cURL
+curl -X POST https://api.financeagent.com/screener/query/complete-dataset \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "List all companies in the healthcare sector"
+  }'
+```
+
+### Request Body
+
+<ParamField body="question" type="string" required>
+  Natural language query
+</ParamField>
+
+<Warning>
+  This endpoint returns ALL results without pagination. Use with caution for queries that may return thousands of rows.
+</Warning>
+
+## Expand Truncated Value
+
+Get the full value for a truncated cell in query results.
+
+**Endpoint**: `POST /screener/query/expand-value`
+
+**Authentication**: Required
+
+```bash cURL
+curl -X POST https://api.financeagent.com/screener/query/expand-value \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Find companies with long descriptions",
+    "row_index": 5,
+    "column_name": "description"
+  }'
+```
+
+### Request Body
+
+<ParamField body="question" type="string" required>
+  Original query question
+</ParamField>
+
+<ParamField body="row_index" type="integer" required>
+  Zero-based row index in the results
+</ParamField>
+
+<ParamField body="column_name" type="string" required>
+  Column name to expand
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Request status
+</ResponseField>
+
+<ResponseField name="full_value" type="string">
+  Complete, non-truncated value
+</ResponseField>
+
+## Cancel Query
+
+Cancel an active streaming query.
+
+**Endpoint**: `POST /screener/cancel`
+
+**Authentication**: Required
+
+```bash cURL
+curl -X POST https://api.financeagent.com/screener/cancel \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "message": "Screening request cancelled successfully"
+}
+```
+
+## Natural Language Examples
+
+The screener understands various query patterns:
+
+### Filter Queries
+
+```
+"Find tech companies with revenue over $1B"
+"Show companies with P/E ratio between 10 and 20"
+"List companies in healthcare sector with market cap > $5B"
+```
+
+### Sorting Queries
+
+```
+"Top 10 companies by market cap"
+"Companies with highest revenue growth"
+"Lowest P/E ratios in technology"
+```
+
+### Comparison Queries
+
+```
+"Compare AAPL, MSFT, and GOOGL revenue"
+"Show quarterly revenue for Tesla in 2024"
+"FAANG stocks sorted by P/E ratio"
+```
+
+### Aggregation Queries
+
+```
+"Average P/E ratio by sector"
+"Total market cap of tech companies"
+"Count of companies by industry"
+```
+
+## Query Caching
+
+Query results are cached for efficient pagination and sorting:
+
+- **Cache Duration**: Results remain cached for the session
+- **Cache Key**: Fuzzy matching on question text
+- **Cache Benefits**: Instant pagination, no re-execution of SQL
+
+## Rate Limiting
+
+Screener queries are subject to rate limits:
+
+- **Standard Users**: 20 queries/month
+- **Admin Users**: 100 queries/month
+- **Per Minute**: 3 queries/minute
+
+<Info>
+  Pagination and sorting operations on cached results don't count against rate limits.
+</Info>
+
+## Performance Tips
+
+1. **Use Pagination**: Always specify `page_size` for large result sets
+2. **Cache Results**: Use pagination/sorting endpoints instead of re-querying
+3. **Specific Queries**: More specific questions generate more efficient SQL
+4. **Limit Columns**: Only request columns you need for better performance
+
+## Example: Complete Workflow
+
+```python Python
+import requests
+import json
+
+token = "YOUR_JWT_TOKEN"
+headers = {"Authorization": f"Bearer {token}"}
+base_url = "https://api.financeagent.com/screener"
+
+# 1. Stream query with progress updates
+response = requests.get(
+    f"{base_url}/query/stream",
+    params={
+        "question": "Find tech companies with P/E ratio less than 20",
+        "page": 1,
+        "page_size": 50
+    },
+    headers=headers,
+    stream=True
+)
+
+for line in response.iter_lines():
+    if line:
+        line = line.decode('utf-8')
+        if line.startswith('data: '):
+            event = json.loads(line[6:])
+            if event['type'] == 'result':
+                results = event['data']
+                print(f"Found {results['total_rows']} companies")
+
+# 2. Sort results by market cap
+sort_response = requests.post(
+    f"{base_url}/query/sort",
+    headers=headers,
+    json={
+        "column": "marketCap",
+        "direction": "desc",
+        "query_id": None
+    }
+)
+sorted_data = sort_response.json()
+
+# 3. Get next page
+page_response = requests.post(
+    f"{base_url}/query/paginate",
+    headers=headers,
+    json={
+        "question": "Find tech companies with P/E ratio less than 20",
+        "page": 2,
+        "page_size": 50
+    }
+)
+page_2_data = page_response.json()
+
+print(f"Page 2: {len(page_2_data['data_rows'])} results")
+```

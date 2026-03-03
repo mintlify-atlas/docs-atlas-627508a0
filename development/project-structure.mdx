@@ -1,0 +1,143 @@
+---
+title: "Project Structure"
+description: "Overview of the Finance Agent codebase directory layout and organization"
+icon: "folder-tree"
+---
+
+## Directory Layout
+
+Finance Agent is organized into distinct modules for AI agent logic, API services, and frontend presentation:
+
+```
+finance_agent/
+├── agent/                  # AI agent & RAG system         → see agent/README.md
+│   ├── __init__.py        # Public API: Agent, RAGAgent, create_agent()
+│   ├── agent_config.py    # Iteration/quality threshold settings
+│   ├── prompts.py         # Centralized LLM prompt templates
+│   ├── llm/               # Unified LLM client (OpenAI/Cerebras)  → see agent/llm/README.md
+│   ├── rag/               # RAG implementation
+│   │   ├── rag_agent.py                          # Main orchestration
+│   │   ├── sec_filings_service_smart_parallel.py  # SEC 10-K agent
+│   │   ├── response_generator.py   # LLM response & evaluation
+│   │   ├── question_analyzer.py    # Semantic routing
+│   │   ├── search_engine.py        # Hybrid transcript search
+│   │   ├── tavily_service.py       # Real-time news
+│   │   ├── earnings_transcript_service.py  # Dedicated earnings transcript retrieval agent
+│   │   ├── search_planner.py       # Search plan generation and temporal reference resolution
+│   │   ├── rag_flow_context.py     # Flow context dataclass for pipeline state
+│   │   └── data_ingestion/         # Data pipeline → see data_ingestion/README.md
+│   └── screener/          # Financial screener
+├── app/                   # FastAPI application
+│   ├── routers/           # API endpoints
+│   └── schemas/           # Pydantic models
+├── frontend/              # React + TypeScript frontend
+├── docs/                  # Documentation
+│   └── SEC_AGENT.md       # 10-K agent deep dive
+```
+
+## Core Modules
+
+### Agent System (`agent/`)
+
+The heart of Finance Agent - implements Retrieval-Augmented Generation (RAG) with semantic data source routing, research planning, and iterative self-improvement.
+
+**Key Components:**
+- **`__init__.py`** - Public API exports (`Agent`, `RAGAgent`, `create_agent()`)
+- **`agent_config.py`** - Agent configuration and iteration settings
+- **`prompts.py`** - Centralized LLM prompt templates (including planning)
+- **`llm/`** - Unified LLM client supporting OpenAI and Cerebras providers
+
+### RAG Implementation (`agent/rag/`)
+
+The RAG pipeline orchestrates retrieval from multiple data sources and iterative answer improvement.
+
+**Core Files:**
+- **`rag_agent.py`** - Orchestration engine with 6-stage pipeline
+- **`question_analyzer.py`** - LLM-based semantic routing to data sources
+- **`response_generator.py`** - LLM response generation, evaluation, planning
+- **`search_planner.py`** - Search plan generation and temporal reference resolution
+- **`rag_flow_context.py`** - Flow context dataclass for pipeline state
+
+**Data Source Tools:**
+- **`search_engine.py`** - Hybrid vector + keyword search for earnings transcripts
+- **`sec_filings_service_smart_parallel.py`** - Planning-driven parallel retrieval for SEC 10-K filings
+- **`tavily_service.py`** - Real-time news via Tavily API
+- **`earnings_transcript_service.py`** - Dedicated earnings transcript retrieval agent
+
+**Supporting Components:**
+- **`database_manager.py`** - PostgreSQL/pgvector operations
+- **`conversation_memory.py`** - Multi-turn conversation state
+- **`config.py`** - RAG configuration (models, weights, thresholds)
+
+### Data Ingestion (`agent/rag/data_ingestion/`)
+
+Pipelines for downloading and processing earnings transcripts and SEC 10-K filings into the vector database.
+
+See `agent/rag/data_ingestion/README.md` for detailed ingestion instructions.
+
+### API Application (`app/`)
+
+FastAPI server providing HTTP endpoints for chat, company search, transcript retrieval, and financial screening.
+
+**Structure:**
+- **`routers/`** - API endpoint definitions
+- **`schemas/`** - Pydantic models for request/response validation
+
+**Key Endpoints:**
+- `POST /message/stream-v2` - Chat with streaming RAG responses
+- `GET /companies/search` - Search companies by ticker/name
+- `GET /transcript/{ticker}/{year}/{quarter}` - Get specific earnings transcript
+- `POST /screener/query/stream` - Natural language financial queries
+
+### Frontend (`frontend/`)
+
+React + TypeScript single-page application with Tailwind CSS styling.
+
+**Technologies:**
+- React 19.2 with React Router for navigation
+- TypeScript 5.9 for type safety
+- Vite 7.2 for build tooling
+- Tailwind CSS 4.1 for styling
+- Clerk for authentication
+- Framer Motion for animations
+- React Markdown for formatted responses
+
+### Financial Screener (`agent/screener/`)
+
+Natural language query interface for company fundamentals (in development).
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| **[agent/README.md](https://github.com/kamathhrishi/stratalensai/blob/main/agent/README.md)** | Complete agent architecture, pipeline stages, semantic routing, iterative self-improvement |
+| **[docs/SEC_AGENT.md](https://github.com/kamathhrishi/stratalensai/blob/main/docs/SEC_AGENT.md)** | SEC 10-K agent: planning-driven retrieval, 91% accuracy on FinanceBench |
+| **[agent/rag/data_ingestion/README.md](https://github.com/kamathhrishi/stratalensai/blob/main/agent/rag/data_ingestion/README.md)** | Data ingestion pipelines for transcripts and SEC filings |
+
+## Configuration Files
+
+- **`.env`** - Environment variables (API keys, database URLs, auth settings)
+- **`requirements.txt`** - Python dependencies
+- **`frontend/package.json`** - Frontend dependencies
+- **`agent/agent_config.py`** - Agent iteration and quality threshold settings
+- **`agent/rag/config.py`** - RAG configuration (models, weights, search parameters)
+
+## Key Design Principles
+
+1. **Modular Architecture** - Clear separation between agent logic, API layer, and frontend
+2. **Semantic Routing** - Intent-based data source selection rather than keyword matching
+3. **Iterative Improvement** - Self-reflection loop with quality evaluation
+4. **Multi-Source RAG** - Combines earnings transcripts, SEC 10-K filings, and real-time news
+5. **Parallel Processing** - Multi-ticker queries execute in parallel for performance
+6. **Streaming Events** - Real-time progress updates for transparency
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Tech Stack" icon="layer-group" href="/development/tech-stack">
+    Learn about the technologies powering Finance Agent
+  </Card>
+  <Card title="Database Schema" icon="database" href="/development/database-schema">
+    Explore the PostgreSQL schema and vector embeddings
+  </Card>
+</CardGroup>

@@ -1,0 +1,391 @@
+---
+title: 'Configuration'
+description: 'Environment variables, agent settings, and RAG configuration for Finance Agent'
+---
+
+## Environment Variables
+
+Finance Agent uses environment variables for all configuration. Copy `.env.example` to `.env` and configure:
+
+### Required Variables
+
+<CodeGroup>
+```bash API Keys
+# OpenAI API Key (required for embeddings and LLM)
+OPENAI_API_KEY=sk-your-openai-api-key-here
+
+# API Ninjas Key (required for downloading earnings transcripts)
+API_NINJAS_KEY=your-api-ninjas-key-here
+```
+
+```bash Database
+# PostgreSQL connection string for embeddings and processed data
+DATABASE_URL=postgresql://username:password@localhost:5432/stratalens
+
+# PG_VECTOR is used for transcript chunks and vectors (must have pgvector extension)
+PG_VECTOR=postgresql://username:password@localhost:5432/stratalens
+```
+</CodeGroup>
+
+### Optional Variables
+
+<CodeGroup>
+```bash LLM Providers
+# Cerebras API Key (optional - for fast inference)
+CEREBRAS_API_KEY=your-cerebras-api-key-here
+
+# Which LLM to use: openai | cerebras | auto
+# auto = Cerebras if CEREBRAS_API_KEY set, else OpenAI
+RAG_LLM_PROVIDER=cerebras
+
+# Max completion tokens for OpenAI (lower = faster; default 8000)
+RAG_OPENAI_MAX_TOKENS=8000
+```
+
+```bash Search & Research
+# Tavily API Key (optional - for web search)
+TAVILY_API_KEY=your-tavily-api-key-here
+```
+
+```bash S3 Storage
+# Railway S3 bucket for full transcripts (enables transcript viewer)
+RAILWAY_BUCKET_ENDPOINT=your-s3-endpoint
+RAILWAY_BUCKET_ACCESS_KEY_ID=your-access-key
+RAILWAY_BUCKET_SECRET_KEY=your-secret-key
+RAILWAY_BUCKET_NAME=your-bucket-name
+```
+</CodeGroup>
+
+### Application Settings
+
+```bash
+# Environment: 'development' for local, 'production' for deployed
+ENVIRONMENT=development
+
+# Server configuration
+PORT=8000
+HOST=0.0.0.0
+BASE_URL=http://localhost:8000
+
+# Logging
+LOG_LEVEL=INFO
+```
+
+## RAG Agent Configuration
+
+The RAG system is configured in `agent/rag/config.py`:
+
+### Core RAG Settings
+
+```python
+{
+    # Chunking parameters
+    "chunk_size": 1000,           # Characters per chunk
+    "chunk_overlap": 200,         # Overlap between chunks
+    "chunks_per_quarter": 15,     # Number of chunks to retrieve per quarter
+    
+    # Similarity threshold for vector search
+    "similarity_threshold": 0,    # 0 = include all results (ranking handles quality)
+    
+    # Embedding model
+    "embedding_model": "all-MiniLM-L6-v2",  # 384-dimensional embeddings
+}
+```
+
+### LLM Configuration
+
+<CodeGroup>
+```python OpenAI Settings
+{
+    "openai_model": "gpt-5-nano-2025-08-07",
+    "openai_max_tokens": 8000,  # Lower = faster responses
+    "openai_temperature": 1,
+}
+```
+
+```python Cerebras Settings (Fast Inference)
+{
+    "cerebras_model": "qwen-3-235b-a22b-instruct-2507",
+    "cerebras_max_tokens": 16000,
+    "cerebras_temperature": 0.1,
+    "use_cerebras": True,
+    "llm_provider": "cerebras",  # or "openai" or "auto"
+}
+```
+
+```python Evaluation Model
+{
+    # Model for answer quality evaluation
+    "evaluation_model": "qwen-3-235b-a22b-instruct-2507",
+    "evaluation_temperature": 0.1,
+}
+```
+</CodeGroup>
+
+### Iterative Improvement Settings
+
+```python
+{
+    # Standard RAG iterations
+    "max_iterations": 3,
+    
+    # SEC/10-K queries (more complex, need more iterations)
+    "sec_max_iterations": 5,
+}
+```
+
+These can be overridden via environment variables:
+
+```bash
+RAG_MAX_ITERATIONS=4
+SEC_MAX_ITERATIONS=6
+```
+
+### Hybrid Search Configuration
+
+```python
+{
+    "hybrid_search_enabled": True,
+    "keyword_weight": 0.3,      # Weight for keyword (BM25) search
+    "vector_weight": 0.7,       # Weight for vector (semantic) search
+    "keyword_max_results": 10,  # Max results from keyword search
+}
+```
+
+**How hybrid search works:**
+
+<Steps>
+  <Step title="Vector Search">
+    Semantic similarity using cosine distance on embeddings (70% weight)
+  </Step>
+
+  <Step title="Keyword Search">
+    BM25 full-text search using PostgreSQL's `ts_vector` (30% weight)
+  </Step>
+
+  <Step title="Score Combination">
+    Results are combined using weighted RRF (Reciprocal Rank Fusion)
+  </Step>
+</Steps>
+
+### Processing Limits
+
+```python
+{
+    # Maximum number of tickers to process in a single query
+    "max_tickers": 8,
+    
+    # Maximum number of quarters to process (3 years of quarterly data)
+    "max_quarters": 12,
+}
+```
+
+<Warning>
+Queries exceeding these limits are automatically capped with a user-friendly message explaining what was processed.
+</Warning>
+
+### Answer Mode Configuration
+
+Defined in `agent/rag/config.py` as `ANSWER_MODE_CONFIG`:
+
+```python
+from enum import Enum
+
+class AnswerMode(str, Enum):
+    DIRECT = "direct"          # Simple factual lookup
+    STANDARD = "standard"      # Moderate analysis
+    DETAILED = "detailed"      # Full research report
+    DEEP_SEARCH = "deep_search"  # Exhaustive search
+
+ANSWER_MODE_CONFIG = {
+    AnswerMode.DIRECT:      {"max_iterations": 2, "max_tokens": 2000, "confidence_threshold": 0.7},
+    AnswerMode.STANDARD:    {"max_iterations": 3, "max_tokens": 6000, "confidence_threshold": 0.8},
+    AnswerMode.DETAILED:    {"max_iterations": 4, "max_tokens": 16000, "confidence_threshold": 0.9},
+    AnswerMode.DEEP_SEARCH: {"max_iterations": 10, "max_tokens": 20000, "confidence_threshold": 0.95},
+}
+```
+
+The agent automatically selects the appropriate mode based on question complexity (analyzed by GPT-5-nano).
+
+## Agent Configuration
+
+Advanced agentic behavior settings in `agent/agent_config.py`:
+
+```python
+{
+    # Iterative improvement
+    "max_iterations": 4,
+    "sec_max_iterations": 5,
+    
+    # Quality thresholds (very strict - favor iteration)
+    "min_confidence_threshold": 0.90,
+    "min_completeness_threshold": 0.90,
+    
+    # Evaluation model for quality assessment
+    "evaluation_model": "gpt-4.1-mini-2025-04-14",
+    "evaluation_temperature": 0.05,
+    "evaluation_max_tokens": 1500,
+    
+    # Quality thresholds for iteration decisions
+    "excellent_threshold": 0.95,  # Near perfect to stop early
+    "good_threshold": 0.80,
+    "poor_threshold": 0.60,
+    
+    # Search expansion during iterations
+    "max_new_chunks_per_iteration": 5,
+    "similarity_threshold_expansion": 0.25,
+    
+    # Iteration strategy
+    "aggressive_iteration": True,
+    "prefer_max_iterations": True,
+}
+```
+
+<Note>
+The agent uses **all available iterations by default** to ensure comprehensive answers. Early stopping only occurs if confidence exceeds 0.95.
+</Note>
+
+## Database Configuration
+
+PostgreSQL connection pool settings in `config.py`:
+
+<CodeGroup>
+```python Production
+{
+    "PRODUCTION_MIN_SIZE": 5,
+    "PRODUCTION_MAX_SIZE": 30,
+    "PRODUCTION_COMMAND_TIMEOUT": 20,
+    "PRODUCTION_TIMEOUT": 15,
+}
+```
+
+```python Development
+{
+    "DEVELOPMENT_MIN_SIZE": 10,
+    "DEVELOPMENT_MAX_SIZE": 50,
+    "DEVELOPMENT_COMMAND_TIMEOUT": 30,
+    "DEVELOPMENT_TIMEOUT": 20,
+}
+```
+</CodeGroup>
+
+### Database Timeouts
+
+```python
+{
+    "STATEMENT_TIMEOUT_MS": 30000,           # 30 seconds
+    "IDLE_IN_TRANSACTION_TIMEOUT_MS": 60000, # 1 minute
+}
+```
+
+## Rate Limiting
+
+```python
+{
+    "PER_MINUTE": 30,
+    "PER_MONTH": 10000,
+    "ADMIN_PER_MONTH": 100000,
+    "COST_PER_REQUEST": 0.02,  # $0.02 per request
+}
+```
+
+## Debug Mode
+
+Enable query optimization logging:
+
+```bash
+RAG_DEBUG_MODE=true
+```
+
+When enabled, the system logs `EXPLAIN ANALYZE` output for database queries to help optimize performance.
+
+## Conversation Memory
+
+Configured in `agent/rag/question_analyzer.py`:
+
+```python
+{
+    "max_exchanges": 5,           # Last 5 conversation turns
+    "max_chars_per_message": 4000 # Max 4000 chars per message
+}
+```
+
+This sliding window maintains recent context for follow-up questions while controlling memory usage.
+
+## Data Paths (Optional)
+
+Override default data directories:
+
+```bash
+DATA_DIR=./data
+TRANSCRIPTS_DIR=./data/transcripts
+EMBEDDINGS_DIR=./data/embeddings
+10K_FILINGS_DIR=./data/10k_filings
+DUCKDB_PATH=./data/duckdb/financial_data_new.duckdb
+```
+
+## External Services
+
+<CodeGroup>
+```bash Redis (Caching)
+# Optional - for WebSocket session management
+REDIS_URL=redis://localhost:6379
+```
+
+```bash Logfire (Observability)
+# Optional - for monitoring and tracing
+LOGFIRE_TOKEN=your-logfire-token-here
+```
+</CodeGroup>
+
+## Configuration Best Practices
+
+<Steps>
+  <Step title="Start with Defaults">
+    The default configuration works well for most use cases. Only customize if you have specific requirements.
+  </Step>
+
+  <Step title="LLM Provider Selection">
+    - **Cerebras**: Fastest inference (recommended for production)
+    - **OpenAI**: Higher quality for complex reasoning
+    - **Auto**: Use Cerebras if available, fallback to OpenAI
+  </Step>
+
+  <Step title="Iteration Tuning">
+    - More iterations = better answers but slower
+    - Start with defaults (3-4), increase for complex queries
+    - Use `DEEP_SEARCH` mode for exhaustive research
+  </Step>
+
+  <Step title="Database Pooling">
+    - Increase pool size for high concurrency
+    - Monitor connection usage and adjust timeouts
+  </Step>
+
+  <Step title="Hybrid Search Weights">
+    - 70/30 (vector/keyword) works well for most queries
+    - Increase keyword weight for exact match queries
+    - Increase vector weight for conceptual queries
+  </Step>
+</Steps>
+
+## Monitoring Configuration
+
+Check configuration at runtime:
+
+```python
+from agent.rag.config import Config
+from config import settings
+
+config = Config()
+print(f"LLM Provider: {config.get('llm_provider')}")
+print(f"Max Iterations: {config.get('max_iterations')}")
+print(f"Hybrid Search: {config.get('hybrid_search_enabled')}")
+print(f"Environment: {settings.ENVIRONMENT.ENVIRONMENT}")
+```
+
+## Next Steps
+
+- [Ask effective questions](/guides/asking-questions) with your configured agent
+- [Ingest data](/guides/data-ingestion) to populate your knowledge base
+- [Set up authentication](/guides/authentication) for production deployment

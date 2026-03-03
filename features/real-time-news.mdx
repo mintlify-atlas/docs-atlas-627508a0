@@ -1,0 +1,288 @@
+---
+title: 'Real-Time News'
+description: 'Get the latest market developments and breaking news with Tavily search'
+icon: 'newspaper'
+---
+
+## Overview
+
+Real-Time News brings current market developments into Finance Agent using **Tavily search**. When you need information about very recent events (last few days/weeks) that haven't appeared in earnings calls or SEC filings yet, this feature searches live web sources and provides AI-generated summaries with article citations.
+
+<CardGroup cols={2}>
+  <Card title="Live Web Search" icon="globe">
+    Searches current web sources for breaking news and recent developments
+  </Card>
+  <Card title="AI Summaries" icon="sparkles">
+    Tavily generates concise summaries of search results automatically
+  </Card>
+  <Card title="Source Citations" icon="link">
+    Every news item includes [N1], [N2], [N3] markers linking to original articles
+  </Card>
+  <Card title="Automatic Routing" icon="route">
+    Finance Agent detects news-related queries and invokes Tavily automatically
+  </Card>
+</CardGroup>
+
+## When to Use Real-Time News
+
+Use this feature when you need information about:
+
+<AccordionGroup>
+  <Accordion title="Breaking Developments (Last Few Days/Weeks)">
+    - "What's the latest news on $NVDA?"
+    - "Recent developments at $TSLA"
+    - "Breaking news about $AAPL iPhone sales"
+  </Accordion>
+  
+  <Accordion title="Market Reactions">
+    - "How did the market react to Microsoft's AI announcement?"
+    - "Stock price movement after earnings miss"
+    - "Investor sentiment on recent guidance cut"
+  </Accordion>
+  
+  <Accordion title="Partnerships & Acquisitions">
+    - "Recent acquisition announcements from $GOOGL"
+    - "Partnership news for $CRM"
+    - "M&A activity in the semiconductor sector"
+  </Accordion>
+  
+  <Accordion title="Leadership Changes">
+    - "CEO transition news at $DIS"
+    - "Recent executive departures"
+    - "New board member announcements"
+  </Accordion>
+  
+  <Accordion title="Product Launches">
+    - "Latest product announcements from $AAPL"
+    - "New AI features from $MSFT"
+    - "Recent service launches"
+  </Accordion>
+</AccordionGroup>
+
+## How It Works
+
+Real-Time News is automatically triggered when:
+1. Your query contains news keywords ("latest news", "recent", "breaking")
+2. The agent determines during iteration that news context would improve the answer
+
+When activated:
+
+1. **Query Tavily API** - Sends your question to Tavily's web search engine
+2. **Retrieve Articles** - Gets top 5 most relevant news articles with:
+   - Title
+   - URL
+   - Content excerpt
+   - Published date
+3. **Generate Summary** - Tavily's AI creates a concise summary of findings
+4. **Format with Citations** - Articles are numbered [N1], [N2], [N3] for easy reference
+5. **Merge into Answer** - News context is incorporated into the final response
+
+## Query Examples
+
+### Latest News Lookup
+```
+Question: What's the latest news on $NVDA?
+
+Answer:
+## Latest NVIDIA News
+
+**AI Chip Demand Remains Strong**
+NVIDIA's Blackwell GPU platform is seeing unprecedented demand, with shipments 
+expected to begin in Q4 2024 [N1]. CEO Jensen Huang stated that production is 
+ramping ahead of schedule [N1].
+
+**Partnership with Major Cloud Providers**
+NVIDIA announced expanded partnerships with AWS, Azure, and Google Cloud to deliver 
+Blackwell-powered AI infrastructure [N2]. The deals are valued at over $10B [N2].
+
+**Stock Performance**
+NVIDIA shares rose 7% this week on strong data center demand [N3]. Analysts cite 
+continued AI adoption as a key driver [N3].
+
+---
+
+**Sources:**
+- [N1] "NVIDIA's Blackwell GPUs Ship Ahead of Schedule" - Reuters, Dec 18 2024
+- [N2] "Cloud Giants Expand NVIDIA Partnership" - Bloomberg, Dec 17 2024
+- [N3] "NVIDIA Shares Rally on AI Optimism" - CNBC, Dec 16 2024
+```
+
+### Combining News with Transcript Data
+```
+Question: How is $DDOG performing recently?
+
+Answer:
+## Datadog Recent Performance
+
+**Q3 2024 Earnings (from transcript)**
+Datadog reported **$748M** in billings for Q3 2024, up **21%** YoY [TC-1]. Revenue 
+was **$690M**, beating guidance [TC-2]. Management raised full-year guidance to 
+**$2.68B** in revenue [TC-3].
+
+**Recent News Developments**
+Datadog announced a new AI observability platform on Dec 15, 2024 [N1]. The product 
+targets enterprise AI workloads and integrates with major LLM providers [N1].
+
+Analysts raised price targets following the product launch, citing expansion into 
+the growing AI infrastructure market [N2]. Stock is up 12% in December [N2].
+
+**Sources:**
+- [TC-1][TC-2][TC-3] Datadog Q3 2024 Earnings Call Transcript
+- [N1] "Datadog Launches AI Observability Platform" - TechCrunch, Dec 15 2024
+- [N2] "Analysts Boost Datadog Targets on AI Push" - Barron's, Dec 16 2024
+```
+
+## Features
+
+### Automatic Semantic Routing
+
+Finance Agent's question analyzer detects when news data would be valuable:
+
+**Explicit News Queries** (always triggers news):
+- "latest news"
+- "recent developments"
+- "breaking news"
+- "what's happening with"
+
+**Implicit News Needs** (triggered during iteration):
+- Agent determines answer is incomplete without recent context
+- Question asks about very recent events ("this week", "today")
+- No relevant transcript/10-K data found
+
+### Hybrid Mode
+
+Finance Agent can combine news with other data sources:
+
+**News + Transcripts:**
+- Start with earnings call data for fundamentals
+- Add news context for recent developments post-earnings
+
+**News + 10-K:**
+- Use 10-K for historical financial position
+- Add news for recent strategic changes
+
+**News Only:**
+- Pure news queries focus exclusively on Tavily results
+
+### Citation Format
+
+News articles use **[N1], [N2], [N3]** markers:
+- **[N1]** = First news article retrieved
+- **[N2]** = Second news article
+- Citations include title, source, published date, and URL
+
+### AI-Generated Summaries
+
+Tavily provides two types of output:
+- **Answer**: AI-generated summary of all findings (concise overview)
+- **Results**: Individual articles with titles, URLs, excerpts, and dates
+
+Finance Agent incorporates both into the final response.
+
+## Coverage
+
+- **Sources**: Web-wide news search (financial news sites, press releases, company announcements, market analysis)
+- **Freshness**: Real-time (typically minutes to hours old)
+- **Results**: Top 5 most relevant articles per query
+- **Provider**: Tavily API
+
+## Technical Details
+
+### Tavily Integration
+```python
+class TavilyService:
+    def search_news(query: str, max_results: int = 5):
+        # Query Tavily API
+        response = tavily_client.search(
+            query=query,
+            max_results=max_results,
+            include_answer="advanced"
+        )
+        
+        return {
+            "answer": "AI-generated summary",
+            "results": [
+                {
+                    "title": "Article headline",
+                    "url": "https://...",
+                    "content": "Article excerpt",
+                    "published_date": "2024-12-18",
+                    "score": 0.95
+                }
+            ]
+        }
+```
+
+### News Context Format
+
+News is formatted with the same SOURCE pattern as transcripts/10-K:
+
+```
+=== LATEST NEWS ===
+
+Summary: [Tavily AI-generated summary]
+
+SOURCE [N1] Article Title (Published: Dec 18 2024, Source: https://...)
+Article content excerpt (up to 800 characters)...
+
+SOURCE [N2] Article Title (Published: Dec 17 2024, Source: https://...)
+Article content excerpt...
+
+=== END NEWS ===
+```
+
+This consistent format ensures the LLM cites news the same way as other sources.
+
+## Best Practices
+
+<Steps>
+  <Step title="Use News for Recent Events Only">
+    Don't rely on news for historical data. Use earnings transcripts or 10-K filings for past quarters/years.
+  </Step>
+  
+  <Step title="Combine with Official Sources">
+    For the best analysis, pair news with official data:
+    - "Compare $AAPL's Q3 2024 results with recent iPhone news"
+  </Step>
+  
+  <Step title="Verify via Citations">
+    Always check the [N1], [N2] citations to verify sources and read full articles.
+  </Step>
+  
+  <Step title="Be Specific About Recency">
+    Include time references:
+    - "News from this week" (more targeted)
+    - "Latest news" (broader)
+  </Step>
+</Steps>
+
+## Limitations
+
+- **No Historical Archive**: Tavily focuses on recent/current news, not historical events
+- **Web Content Variability**: Quality depends on available web sources at query time
+- **No Structured Data**: News is unstructured text, not official financial filings
+- **Source Reliability**: Tavily aggregates from multiple sources; verify important claims
+- **No Real-Time Prices**: For stock prices, use a dedicated market data service
+
+<Warning>
+**Important**: News search does NOT provide real-time stock prices or market data. It searches for news articles and press releases only.
+</Warning>
+
+## Configuration
+
+Real-Time News requires a Tavily API key:
+
+```bash
+TAVILY_API_KEY=your_tavily_api_key_here
+```
+
+If the key is not configured:
+- News search will be disabled
+- Queries will fall back to transcripts/10-K only
+- A warning will appear in logs
+
+## Related Features
+
+- [Earnings Transcripts](/features/earnings-transcripts) - For quarterly earnings data
+- [SEC Filings](/features/sec-filings) - For annual 10-K reports
+- [Financial Screener](/features/financial-screener) - For stock screening (coming soon)

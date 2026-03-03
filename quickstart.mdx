@@ -1,80 +1,383 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get from zero to your first query in 5 minutes with Finance Agent
 ---
 
-## Get started in three steps
+# Quickstart guide
 
-Get your documentation site running locally and make your first customization.
+This guide will help you set up Finance Agent and run your first query in minutes.
 
-### Step 1: Set up your local environment
+## Prerequisites
+
+Before starting, ensure you have:
+
+- **Python 3.9 or higher** installed
+- **PostgreSQL 12+** with the pgvector extension
+- **Git** for cloning the repository
+- API keys for OpenAI and Cerebras (see [Getting API keys](#getting-api-keys))
+
+<Note>
+If you don't have PostgreSQL with pgvector, see the [Installation guide](/installation) for detailed setup instructions.
+</Note>
+
+## Quick setup
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/kamathhrishi/stratalensai.git
+    cd finance_agent
+    ```
+  </Step>
+  
+  <Step title="Install dependencies">
+    ```bash
+    pip install -r requirements.txt
+    ```
+    
+    This installs all required packages including:
+    - FastAPI and uvicorn for the web server
+    - PostgreSQL drivers (asyncpg, psycopg2-binary)
+    - AI/ML libraries (OpenAI, Cerebras, LangChain, sentence-transformers)
+    - Vector search and caching (pgvector, Redis)
+  </Step>
+  
+  <Step title="Configure environment variables">
+    Copy the example environment file and add your API keys:
+    
+    ```bash
+    cp .env.example .env
+    ```
+    
+    Edit `.env` with your configuration:
+    
+    ```bash
+    # Required: AI model API keys
+    OPENAI_API_KEY=sk-your-openai-api-key-here
+    CEREBRAS_API_KEY=your-cerebras-api-key-here
+    API_NINJAS_KEY=your-api-ninjas-key-here
+    
+    # Required: Database connection
+    DATABASE_URL=postgresql://username:password@localhost:5432/stratalens
+    
+    # Optional: Real-time news
+    TAVILY_API_KEY=your-tavily-api-key-here
+    
+    # Server configuration
+    BASE_URL=http://localhost:8000
+    ENVIRONMENT=development
+    AUTH_DISABLED=true  # Disable auth for local testing
+    ```
+    
+    <Warning>
+    Never commit your `.env` file to version control! It contains sensitive API keys.
+    </Warning>
+  </Step>
+  
+  <Step title="Start the server">
+    ```bash
+    python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ```
+    
+    You should see output like:
+    
+    ```
+    INFO:     Started server process [12345]
+    INFO:     Waiting for application startup.
+    INFO:     Application startup complete.
+    INFO:     Uvicorn running on http://0.0.0.0:8000
+    ```
+  </Step>
+  
+  <Step title="Access the application">
+    Open your browser to:
+    
+    - **Frontend:** `http://localhost:8000`
+    - **API docs:** `http://localhost:8000/docs`
+    - **Alternative docs:** `http://localhost:8000/redoc`
+  </Step>
+</Steps>
+
+## Your first query
+
+Now that the server is running, let's try asking a question!
+
+### Option 1: Web interface
+
+1. Navigate to `http://localhost:8000`
+2. Type a question in the chat interface:
+   ```
+   What was Apple's revenue in Q4 2024?
+   ```
+3. Watch the agent's reasoning in real-time:
+   - Question analysis and data source routing
+   - Research planning statement
+   - Retrieved transcript chunks with citations
+   - Final answer with sources
+
+### Option 2: API endpoint
+
+Use curl or any HTTP client:
+
+```bash
+curl -X POST "http://localhost:8000/message/stream-v2" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What was Apple's revenue in Q4 2024?",
+    "user_id": "test-user"
+  }'
+```
+
+### Option 3: Python client
+
+```python
+import asyncio
+from agent import create_agent
+
+async def ask_question():
+    agent = create_agent()
+    
+    async for event in agent.execute_rag_flow(
+        question="What was Apple's revenue in Q4 2024?",
+        stream=True
+    ):
+        if event['type'] == 'reasoning':
+            print(f"Planning: {event['message']}")
+        elif event['type'] == 'result':
+            print(f"Answer: {event['data']['answer']}")
+
+asyncio.run(ask_question())
+```
+
+## Understanding the response
+
+Finance Agent streams multiple event types:
 
 <AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
+  <Accordion title="analysis - Question analysis complete">
+    ```json
+    {
+      "type": "analysis",
+      "message": "Analyzing question...",
+      "data": {
+        "tickers": ["AAPL"],
+        "data_source": "earnings_transcripts",
+        "time_period": "Q4 2024"
+      }
+    }
+    ```
   </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
+  
+  <Accordion title="reasoning - Research planning">
+    ```json
+    {
+      "type": "reasoning",
+      "message": "The user is asking about Apple's Q4 2024 revenue. I need to find total revenue figures from the earnings call transcript, including any segment breakdowns and year-over-year comparisons."
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="iteration_start - Beginning search iteration">
+    ```json
+    {
+      "type": "iteration_start",
+      "data": {
+        "iteration": 1,
+        "max_iterations": 3
+      }
+    }
+    ```
+  </Accordion>
+  
+  <Accordion title="result - Final answer with citations">
+    ```json
+    {
+      "type": "result",
+      "data": {
+        "answer": "Apple's Q4 2024 revenue was $94.9 billion, up 6% year-over-year [T1]. iPhone revenue was $46.2 billion [T2]...",
+        "citations": [
+          {
+            "id": "T1",
+            "text": "Our September quarter revenue was $94.9 billion...",
+            "source": "AAPL Q4 2024 Earnings Call"
+          }
+        ],
+        "confidence": 0.92
+      }
+    }
+    ```
   </Accordion>
 </AccordionGroup>
 
-### Step 2: Deploy your changes
+## Example queries by type
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+### Earnings transcript queries
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+These automatically route to earnings call transcripts:
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+```
+"What did Apple say about iPhone sales in Q4 2024?"
+"Compare Microsoft and Google cloud revenue last quarter"
+"Show me Tesla's guidance for 2025"
+"What questions did analysts ask about NVIDIA's data center business?"
+```
 
-### Step 3: Go live
+### SEC 10-K queries
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+These route to the specialized 10-K retrieval agent:
+
+```
+"What is Tim Cook's compensation?"
+"Show me Microsoft's balance sheet"
+"What are Amazon's risk factors?"
+"Compare Apple and Samsung's total assets"
+```
+
+<Note>
+Executive compensation data is **only** available in 10-K filings, not earnings transcripts. The semantic router automatically detects this.
+</Note>
+
+### Real-time news queries
+
+These use Tavily for current events:
+
+```
+"What's the latest news on Tesla?"
+"Recent developments for NVIDIA stock"
+"Latest AI announcements from Microsoft"
+```
+
+### Multi-source hybrid queries
+
+```
+"Compare Apple's official 10-K risk factors with recent news"
+"Show me historical revenue trends and latest earnings commentary"
+```
+
+## Configuration options
+
+### Choose your LLM provider
+
+Finance Agent supports multiple LLM providers:
+
+```bash
+# Use Cerebras (default - fast and cost-effective)
+RAG_LLM_PROVIDER=cerebras
+
+# Use OpenAI
+RAG_LLM_PROVIDER=openai
+
+# Auto-select (Cerebras if key available, else OpenAI)
+RAG_LLM_PROVIDER=auto
+```
+
+### Adjust answer quality vs. speed
+
+The agent automatically selects answer modes, but you can understand the tradeoffs:
+
+- **Direct mode:** 2 iterations, 70% confidence - Quick factual lookups (~5 sec)
+- **Standard mode:** 3 iterations, 80% confidence - Balanced analysis (~10 sec)
+- **Detailed mode:** 4 iterations, 90% confidence - Comprehensive research (~15 sec)
+
+### Enable debug mode
+
+```bash
+RAG_DEBUG_MODE=true  # See detailed reasoning and search plans
+LOG_LEVEL=DEBUG      # Verbose logging
+```
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
+Now that you have Finance Agent running:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Installation guide" icon="download" href="/installation">
+    Complete setup with data ingestion and production deployment
+  </Card>
+  
+  <Card title="Agent system" icon="robot" href="/agent-system">
+    Understand semantic routing and iterative improvement
+  </Card>
+  
+  <Card title="SEC agent" icon="file-contract" href="/sec-agent">
+    Deep dive into 10-K retrieval architecture
+  </Card>
+  
+  <Card title="API reference" icon="code" href="/api-reference">
+    Explore all endpoints and integration options
+  </Card>
 </CardGroup>
 
+## Getting API keys
+
+### OpenAI API key (required)
+
+1. Visit [platform.openai.com](https://platform.openai.com/)
+2. Sign up or log in
+3. Navigate to API keys section
+4. Create a new secret key
+5. Copy to `.env` as `OPENAI_API_KEY`
+
+### Cerebras API key (recommended)
+
+1. Visit [cerebras.ai](https://cerebras.ai/)
+2. Request API access
+3. Copy key to `.env` as `CEREBRAS_API_KEY`
+
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+Cerebras provides faster inference (Qwen-3-235B) and is the default provider. OpenAI is used as fallback.
 </Note>
+
+### API Ninjas key (required for transcripts)
+
+1. Visit [api-ninjas.com](https://api-ninjas.com/)
+2. Sign up for free tier
+3. Copy key to `.env` as `API_NINJAS_KEY`
+
+### Tavily API key (optional for news)
+
+1. Visit [tavily.com](https://tavily.com/)
+2. Sign up for free tier
+3. Copy key to `.env` as `TAVILY_API_KEY`
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Server won't start - missing dependencies">
+    Ensure Python 3.9+ and all dependencies are installed:
+    
+    ```bash
+    python --version  # Should be 3.9 or higher
+    pip install -r requirements.txt
+    ```
+  </Accordion>
+  
+  <Accordion title="Database connection errors">
+    Verify PostgreSQL is running and connection string is correct:
+    
+    ```bash
+    # Test connection
+    psql "postgresql://username:password@localhost:5432/stratalens"
+    
+    # Ensure pgvector extension is installed
+    CREATE EXTENSION IF NOT EXISTS vector;
+    ```
+  </Accordion>
+  
+  <Accordion title="No data returned for queries">
+    You need to ingest data first. See the [Installation guide](/installation) for data ingestion steps, or use the live platform at [stratalens.ai](https://www.stratalens.ai).
+  </Accordion>
+  
+  <Accordion title="API key errors">
+    Check that all required keys are set in `.env`:
+    
+    ```bash
+    # Verify keys are loaded
+    python -c "from dotenv import load_dotenv; import os; load_dotenv(); print('OpenAI:', bool(os.getenv('OPENAI_API_KEY')))"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+If you encounter rate limits or quota errors, check your API provider dashboards for usage limits.
+</Warning>

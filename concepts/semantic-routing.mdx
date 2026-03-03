@@ -1,0 +1,276 @@
+---
+title: 'Semantic Routing'
+description: 'How Finance Agent routes questions to the right data sources based on intent'
+---
+
+Semantic routing is a key differentiator of Finance Agent. Instead of using simple keyword matching, the agent analyzes question **intent** to determine which data sources will best answer the question.
+
+## How It Works
+
+The question analysis uses the configured LLM provider to understand what type of information would **best answer** the question, considering:
+
+1. **Intent**: What is the user trying to learn?
+2. **Time Period**: Annual=10K, Quarterly=Transcripts, Recent=News
+3. **Formality**: Official/Audited=10K, Commentary=Transcripts, Current=News
+4. **Completeness**: Would combining sources provide a better answer?
+
+## Data Source Tools
+
+The main agent orchestrates access to **three specialized data source tools**:
+
+<CardGroup cols={3}>
+  <Card title="Earnings Transcripts" icon="microphone">
+    Hybrid vector + keyword search over quarterly earnings calls
+  </Card>
+  <Card title="SEC 10-K Filings" icon="file-invoice">
+    Specialized retrieval agent for annual SEC filings
+  </Card>
+  <Card title="Real-Time News" icon="newspaper">
+    Live web search for breaking developments
+  </Card>
+</CardGroup>
+
+## Routing Decision Process
+
+```
+QUESTION INTENT → DATA SOURCE DECISION
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ SEC 10-K FILINGS (data_source="10k")  [Specialized Retrieval Agent]     │
+│ Currently: 10-K only (annual reports) | Coming: 10-Q, 8-K                │
+│                                                                           │
+│ Best for:                                                                │
+│ • Annual/full-year financial data, audited figures                       │
+│ • Balance sheets, income statements, cash flow statements                │
+│ • Executive compensation, CEO pay, stock awards (ONLY in 10-K!)          │
+│ • Risk factors, legal proceedings, regulatory matters                    │
+│ • Detailed business descriptions, segment breakdowns                     │
+│ • Multi-year historical comparisons                                      │
+│ • Total assets, liabilities, debt structure                              │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ EARNINGS TRANSCRIPTS (data_source="earnings_transcripts")                │
+│ Best for:                                                                │
+│ • Quarterly performance discussions, recent quarter results              │
+│ • Management commentary, executive statements, tone/sentiment            │
+│ • Forward guidance, outlook, projections                                 │
+│ • Analyst Q&A, investor concerns, management responses                   │
+│ • Product launches, strategic initiatives                                │
+│ • Quarter-over-quarter comparisons                                       │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ LATEST NEWS (data_source="latest_news")                                  │
+│ Best for:                                                                │
+│ • Very recent events (last few days/weeks)                               │
+│ • Breaking developments, announcements                                   │
+│ • Market reactions, stock movements                                      │
+│ • Recent partnerships, acquisitions, leadership changes                  │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ HYBRID (data_source="hybrid")                                            │
+│ Best for:                                                                │
+│ • Questions explicitly requesting multiple perspectives                  │
+│ • Comparing official filings with recent developments                    │
+│ • Comprehensive analysis needing historical + current data               │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+## Routing Examples
+
+Here are real examples of how semantic routing works in practice:
+
+| Question | Routed To | Reasoning |
+|----------|-----------|-----------|
+| "What was Apple's Q4 2024 revenue?" | Transcripts | Quarterly data, recent results |
+| "What is Tim Cook's compensation?" | 10-K | Executive compensation only in SEC filings |
+| "Show me Microsoft's balance sheet" | 10-K | Financial statements from annual reports |
+| "What did management say about AI?" | Transcripts | Management commentary from earnings calls |
+| "What's the latest news on NVIDIA?" | News | Recent developments |
+| "Compare 10-K risks with recent news" | Hybrid | Needs multiple sources |
+| "Analyze Oracle's debt structure" | 10-K | Detailed financial data from annual reports |
+| "What's the outlook for Meta's AI investments?" | Transcripts | Forward guidance from earnings calls |
+
+## Implementation Details
+
+### ReasoningPlanner
+
+The `ReasoningPlanner` performs combined reasoning + analysis in a single LLM call:
+
+```python
+# From agent/rag/reasoning_planner.py
+class ReasoningPlanner:
+    """
+    Combined question analysis and research reasoning.
+
+    Single LLM call that:
+    1. Analyzes the question (extracts entities, intent)
+    2. Explains the research approach (reasoning)
+    3. Outputs structured metadata for search planning
+    """
+
+    async def create_reasoning_plan(
+        self,
+        question: str,
+        conversation_id: Optional[str] = None
+    ) -> ReasoningResult:
+        # LLM analyzes intent and selects data sources
+        # Returns reasoning + structured metadata
+        pass
+```
+
+<Info>
+**Why a single LLM call?** Combining reasoning and analysis is faster than two separate calls and produces more coherent results because the reasoning drives the analysis.
+</Info>
+
+### Prompt Design
+
+The routing prompt provides clear guidance on when to use each data source:
+
+<CodeGroup>
+```python Prompt Excerpt
+"""
+**DATA SOURCES:**
+- "earnings_transcripts" - Quarterly earnings calls (for guidance, commentary, Q&A)
+- "10k" - Annual SEC filings (for balance sheets, risk factors, compensation, detailed financials)
+- "news" - Latest news articles (for recent developments, announcements)
+
+Choose based on:
+- Capex, revenue, guidance, commentary → "earnings_transcripts"
+- Balance sheet, debt, risks, compensation → "10k"
+- Latest news, recent events → "news"
+"""
+```
+</CodeGroup>
+
+### Example Output
+
+Here's a real example of the routing decision for a complex question:
+
+<CodeGroup>
+```json Question: "Comment on Oracle's balance sheet and debt usage"
+{
+  "reasoning": "The user wants a comprehensive analysis of Oracle's balance sheet and debt strategy. This requires detailed financial data from the 10-K filing, including total assets, liabilities, debt structure, maturity schedules, and management's discussion of capital allocation. I'll search the latest 10-K for balance sheet data, debt footnotes, and MD&A sections on capital structure.",
+  "tickers": ["ORCL"],
+  "time_refs": ["latest"],
+  "topic": "balance sheet and debt usage analysis",
+  "question_type": "specific_company",
+  "data_sources": ["10k"],
+  "answer_mode": "detailed",
+  "is_valid": true,
+  "validation_message": "",
+  "confidence": 0.95
+}
+```
+
+```json Question: "What is NVDA's competitive moat in AI chips?"
+{
+  "reasoning": "The user is asking about NVIDIA's competitive advantages in AI chips. This requires analyzing strategic differentiators like technology leadership, CUDA ecosystem, and market positioning typically discussed in earnings calls and 10-Ks. I'll search recent earnings transcripts and the latest 10-K for management commentary on competitive moat, R&D investments, and market share.",
+  "tickers": ["NVDA"],
+  "time_refs": ["latest"],
+  "topic": "competitive moat in AI chips",
+  "question_type": "specific_company",
+  "data_sources": ["earnings_transcripts", "10k"],
+  "answer_mode": "detailed",
+  "is_valid": true,
+  "validation_message": "",
+  "confidence": 0.95
+}
+```
+</CodeGroup>
+
+## Benefits of Semantic Routing
+
+<AccordionGroup>
+  <Accordion title="More Accurate Results">
+    By understanding intent rather than keywords, the agent can retrieve the most relevant information even when questions don't explicitly mention data sources.
+  </Accordion>
+
+  <Accordion title="Flexible Querying">
+    Users can ask questions naturally without needing to know which data source contains the answer. The agent figures it out.
+  </Accordion>
+
+  <Accordion title="Multi-Source Intelligence">
+    For complex questions, the agent can automatically combine multiple sources (hybrid mode) for comprehensive answers.
+  </Accordion>
+
+  <Accordion title="Context-Aware">
+    The LLM considers conversation history, time periods, and question complexity to make intelligent routing decisions.
+  </Accordion>
+
+  <Accordion title="Transparent Reasoning">
+    The agent explains its routing decision, making the research approach transparent to users.
+  </Accordion>
+</AccordionGroup>
+
+## Answer Mode Detection
+
+Semantic routing also determines the **answer mode** based on question complexity:
+
+| Mode | Criteria | Example Questions |
+|------|----------|-------------------|
+| **Direct** | Simple single-metric lookups | "What was AAPL revenue?" |
+| **Standard** | Moderate questions with context | "Tell me about AAPL performance" |
+| **Detailed** | Complex analytical questions | "Analyze", "Comment on", "Explain", multi-company comparisons |
+
+The answer mode controls iteration depth and confidence thresholds:
+
+- **Direct**: 2 iterations, 70% confidence threshold
+- **Standard**: 3 iterations, 80% confidence threshold  
+- **Detailed**: 4 iterations, 90% confidence threshold
+- **Deep Search**: 10 iterations, 95% confidence threshold (reserved)
+
+<Warning>
+The combined reasoning stage currently outputs `direct`, `standard`, or `detailed` only. `deep_search` is reserved for future expansion.
+</Warning>
+
+## Validation
+
+Semantic routing also includes question validation:
+
+```python
+# Questions marked as invalid (is_valid=false):
+- Gibberish or greetings
+- Non-finance questions
+- Questions about private companies or unavailable data
+- Too vague to answer
+```
+
+When a question is invalid, the agent responds with a helpful message instead of attempting retrieval.
+
+## Advanced: Multi-Ticker Routing
+
+For questions comparing multiple companies, the agent:
+
+1. **Parallel Processing**: Searches each ticker concurrently
+2. **Ticker-Specific Rephrasing**: Creates company-specific search queries
+3. **Synthesis**: Combines results into unified comparative analysis
+
+<CodeGroup>
+```python Example: "Compare $AAPL and $MSFT revenue growth"
+{
+  "reasoning": "The user wants to compare Apple and Microsoft's revenue growth trends over the last 2 years. I'll search earnings transcripts for both companies across the last 8 quarters to extract revenue figures, growth rates, and segment breakdowns for a comprehensive comparison.",
+  "tickers": ["AAPL", "MSFT"],
+  "time_refs": ["last 2 years"],
+  "topic": "revenue growth comparison",
+  "question_type": "multiple_companies",
+  "data_sources": ["earnings_transcripts"],
+  "answer_mode": "detailed",
+  "is_valid": true,
+  "confidence": 0.95
+}
+```
+</CodeGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="RAG Pipeline" icon="diagram-project" href="/concepts/rag-pipeline">
+    Learn how retrieval and generation work together
+  </Card>
+  <Card title="Data Sources" icon="database" href="/concepts/data-sources">
+    Explore each data source in detail
+  </Card>
+</CardGroup>

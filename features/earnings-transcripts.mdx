@@ -1,0 +1,227 @@
+---
+title: 'Earnings Transcripts'
+description: 'Ask questions about quarterly earnings calls and get precise answers with citations'
+icon: 'microphone'
+---
+
+## Overview
+
+Earnings Transcripts is Finance Agent's core feature for analyzing quarterly earnings calls from 2020-2025. Get word-for-word executive commentary, financial metrics, and forward guidance directly from the source that professional analysts use.
+
+Unlike generic LLMs that summarize web content, Finance Agent retrieves actual transcript chunks from your target companies and quarters, giving you precise answers with exact citations.
+
+<CardGroup cols={2}>
+  <Card title="Word-for-Word Accuracy" icon="quote-left">
+    Every answer is backed by actual transcript excerpts, not paraphrased summaries
+  </Card>
+  <Card title="Smart Planning" icon="brain">
+    AI agent plans research approach before searching, ensuring comprehensive coverage
+  </Card>
+  <Card title="Multi-Quarter Analysis" icon="calendar-range">
+    Compare metrics across quarters automatically with parallel search
+  </Card>
+  <Card title="Citation Tracking" icon="link">
+    Every fact includes [TC-N] citations linking back to the exact source
+  </Card>
+</CardGroup>
+
+## How It Works
+
+When you ask a question about earnings calls, Finance Agent:
+
+1. **Plans the Search** - Generates focused keyword phrases optimized for semantic search (not verbose questions)
+2. **Parallel Retrieval** - Searches all target quarters simultaneously using hybrid vector + keyword search
+3. **Answer Generation** - Synthesizes findings with precise [TC-N] citation markers
+4. **Quality Evaluation** - Assesses completeness and iterates if gaps are found (up to 2 iterations)
+
+### What You Can Ask
+
+<AccordionGroup>
+  <Accordion title="Quarterly Performance">
+    - "What was Apple's Q4 2024 revenue?"
+    - "Show me Datadog's billings for the last 3 quarters"
+    - "What did Microsoft say about Azure growth in Q3 2024?"
+  </Accordion>
+  
+  <Accordion title="Management Commentary">
+    - "What guidance did management provide for Q1 2025?"
+    - "How did executives explain the margin compression?"
+    - "What did the CEO say about the competitive landscape?"
+  </Accordion>
+  
+  <Accordion title="Analyst Q&A">
+    - "What questions did analysts ask about AI investments?"
+    - "How did management respond to concerns about deceleration?"
+    - "What did executives say about customer acquisition costs?"
+  </Accordion>
+  
+  <Accordion title="Multi-Company Comparison">
+    - "Compare $MSFT and $GOOGL cloud revenue growth"
+    - "What did $AAPL and $NVDA say about supply chain issues?"
+    - "Compare operating margins for $META and $SNAP"
+  </Accordion>
+</AccordionGroup>
+
+## Query Examples
+
+### Single Metric Lookup
+```
+Question: What was Datadog's Q3 2024 billings?
+
+Answer:
+Datadog reported **$748M** in billings for Q3 2024, up **21%** year-over-year [TC-1]. 
+This represents an acceleration from Q2 2024's **$690M** in billings [TC-2].
+
+**You might also ask:**
+- What was Datadog's RPO (remaining performance obligations) in Q3 2024?
+- How did Datadog's customer count change in Q3 2024?
+- What guidance did Datadog provide for Q4 2024 billings?
+```
+
+### Multi-Quarter Trends
+```
+Question: Show me Apple's iPhone revenue for the last 3 quarters
+
+Answer:
+Here's Apple's iPhone revenue trend:
+
+| Quarter  | iPhone Revenue | YoY Growth |
+|----------|----------------|------------|
+| Q4 2024  | **$46.2B**     | **+6%** [TC-1] |
+| Q3 2024  | **$39.3B**     | **-1%** [TC-4] |
+| Q2 2024  | **$45.9B**     | **+0%** [TC-7] |
+
+Management noted that Q4 2024's growth was driven by strong demand for iPhone 15 Pro models [TC-2].
+```
+
+### Comparative Analysis
+```
+Question: Compare Microsoft and Google cloud revenue growth in Q3 2024
+
+Answer:
+## Cloud Revenue Comparison - Q3 2024
+
+| Company   | Cloud Revenue | YoY Growth | QoQ Growth |
+|-----------|---------------|------------|------------|
+| Microsoft | **$31.8B** (Azure) | **+33%** [TC-1] | **+3%** [TC-1] |
+| Google    | **$11.4B** (GCP) | **+35%** [TC-8] | **+5%** [TC-9] |
+
+**Key Insights:**
+- Both companies saw acceleration vs Q2 2024 [TC-3][TC-10]
+- Microsoft cited AI workloads driving Azure growth [TC-2]
+- Google highlighted new enterprise customer wins in GCP [TC-11]
+```
+
+## Features
+
+### Hybrid Search
+Combines vector embeddings (70%) with keyword matching (30%) for optimal recall:
+- **Vector search**: Captures semantic similarity ("revenue" matches "sales", "income")
+- **Keyword search**: Ensures exact terms are prioritized ("billings" won't miss "billings")
+
+### Planning-Driven Retrieval
+Before searching, the agent generates:
+- **Sub-questions**: What specific data is needed?
+- **Search queries**: Dense keyword phrases optimized for embedding search
+
+Example:
+```
+User question: "What is Datadog's revenue per employee?"
+
+Agent plan:
+  Sub-questions:
+    - What was Datadog's total revenue?
+    - How many employees does Datadog have?
+  
+  Search queries:
+    - "total revenue subscription professional services"
+    - "number of employees workforce headcount"
+```
+
+### Citation Format
+Every answer includes **[TC-N]** markers that link to source transcripts:
+
+- **[TC-1]** = First transcript chunk retrieved
+- **[TC-5]** = Fifth transcript chunk
+- Click any citation to see the full excerpt with company, quarter, and year metadata
+
+### Multi-Ticker Synthesis
+When comparing companies, Finance Agent:
+1. Runs parallel searches for each ticker
+2. Renumbers citations to avoid conflicts (AAPL gets TC-1 to TC-10, MSFT gets TC-11 to TC-20)
+3. Synthesizes findings into a unified comparative answer
+
+## Coverage
+
+- **Time Range**: 2020-2025 (coverage varies by company)
+- **Companies**: S&P 500 and major tech companies
+- **Quarters**: Q1, Q2, Q3, Q4 (fiscal quarters, varies by company fiscal year)
+- **Database**: PostgreSQL with pgvector for semantic search
+
+<Note>
+Quarter availability varies by company. Use specific quarter references ("Q3 2024") or relative terms ("last 3 quarters", "latest quarter") to get the most recent data available.
+</Note>
+
+## Technical Details
+
+### Architecture
+- **Chunk Size**: 1000 characters with 200-character overlap
+- **Embedding Model**: all-MiniLM-L6-v2 (384 dimensions)
+- **Chunks per Query**: Up to 15 per quarter, 20 shown to LLM per iteration
+- **Max Iterations**: 2 (initial generation + 1 refinement)
+- **Quality Threshold**: 85% confidence to stop early
+
+### Retrieval Flow
+```
+User Question
+  ↓
+Plan Generation (sub-questions + search queries)
+  ↓
+Parallel Hybrid Search (vector + keyword across all target quarters)
+  ↓
+Answer Generation (with [TC-N] citations)
+  ↓
+Quality Evaluation
+  ↓
+[If gaps found] → Replan with additional queries → Search again
+  ↓
+Final Answer
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Use Ticker Symbols">
+    Always include `$TICKER` format for companies (e.g. `$AAPL`, `$MSFT`). This ensures accurate company identification.
+  </Step>
+  
+  <Step title="Specify Time Periods">
+    Be specific about quarters:
+    - "Q3 2024" = exact quarter
+    - "last 3 quarters" = most recent 3 available
+    - "latest quarter" = most recent available
+  </Step>
+  
+  <Step title="Request Specific Metrics">
+    The more specific your question, the better:
+    - Good: "What was RPO growth in Q3 2024?"
+    - Less good: "Tell me about performance"
+  </Step>
+  
+  <Step title="Use Follow-Up Suggestions">
+    Every answer ends with 3 suggested follow-up questions to help you explore related topics.
+  </Step>
+</Steps>
+
+## Limitations
+
+- **No Real-Time Data**: Transcripts are from published earnings calls, typically 1-2 quarters behind current date
+- **Fiscal Year Variations**: Companies define fiscal years differently (Apple's Q4 is Oct-Dec, Microsoft's Q4 is Jul-Sep)
+- **Coverage Gaps**: Not all companies have complete historical data back to 2020
+- **No Stock Prices**: Focus is on earnings call commentary, not market data
+
+## Related Features
+
+- [SEC Filings](/features/sec-filings) - For annual 10-K data (balance sheets, CEO compensation, audited financials)
+- [Real-Time News](/features/real-time-news) - For breaking developments not yet in earnings calls
+- [Financial Screener](/features/financial-screener) - For screening stocks by fundamentals (coming soon)

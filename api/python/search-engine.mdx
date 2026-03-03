@@ -1,0 +1,539 @@
+---
+title: 'SearchEngine'
+description: 'Search operations including vector, keyword, and hybrid search'
+icon: 'magnifying-glass'
+---
+
+## Overview
+
+The `SearchEngine` class handles all search operations for the RAG system, including vector search, keyword search, and hybrid search functionality.
+
+## Class Definition
+
+### SearchEngine
+
+```python
+from agent.rag.search_engine import SearchEngine
+from agent.rag.config import Config
+from agent.rag.database_manager import DatabaseManager
+
+config = Config()
+db_manager = DatabaseManager(config)
+
+search_engine = SearchEngine(config, db_manager)
+```
+
+## Constructor
+
+### `__init__(config, database_manager)`
+
+Initialize the search engine with configuration and database access.
+
+<ParamField path="config" type="Config">
+  Configuration object containing search settings
+</ParamField>
+
+<ParamField path="database_manager" type="DatabaseManager">
+  Database manager for executing queries
+</ParamField>
+
+**Initialization includes:**
+- Loading the embedding model (SentenceTransformer)
+- Creating a thread pool executor for CPU-bound embedding operations
+- Configuring hybrid search parameters
+
+```python
+from agent.rag.search_engine import SearchEngine
+from agent.rag.config import Config
+from agent.rag.database_manager import DatabaseManager
+
+# Create dependencies
+config = Config()
+db_manager = DatabaseManager(config)
+
+# Initialize search engine
+search_engine = SearchEngine(config, db_manager)
+```
+
+## Core Methods
+
+### search_similar_chunks(query, max_results=None, target_quarter=None)
+
+Search for similar chunks using hybrid vector + keyword search with optional quarter filtering.
+
+<ParamField path="query" type="str">
+  Search query text
+</ParamField>
+
+<ParamField path="max_results" type="int" default="None">
+  Maximum number of results to return. If None, uses chunks_per_quarter from config (default: 15)
+</ParamField>
+
+<ParamField path="target_quarter" type="str" default="None">
+  Target quarter for filtering (e.g., "2025_q1"). Use "multiple" or None for no quarter filter
+</ParamField>
+
+**Returns:** `List[Dict[str, Any]]` - List of chunk dictionaries with similarity scores
+
+<Note>
+This is a synchronous method. For async contexts, use the async version of search methods.
+</Note>
+
+```python
+# Basic search
+results = search_engine.search_similar_chunks(
+    query="What is Apple's revenue?",
+    max_results=20
+)
+
+# Search specific quarter
+results = search_engine.search_similar_chunks(
+    query="AI strategy",
+    target_quarter="2025_q1"
+)
+
+# Search all quarters
+results = search_engine.search_similar_chunks(
+    query="Financial performance",
+    target_quarter="multiple"
+)
+```
+
+### encode_query_async(query)
+
+Generate query embedding asynchronously using thread pool executor.
+
+<ParamField path="query" type="str">
+  Query text to encode
+</ParamField>
+
+**Returns:** `np.ndarray` - Query embedding vector
+
+<Info>
+This method prevents blocking the event loop while encoding queries, making it suitable for async contexts.
+</Info>
+
+```python
+import asyncio
+
+async def search_with_embedding():
+    # Generate embedding asynchronously
+    embedding = await search_engine.encode_query_async(
+        "What is Microsoft's cloud revenue?"
+    )
+    
+    # Use embedding for custom search
+    # embedding.shape -> (1, 384) or (1, 768) depending on model
+    return embedding
+
+result = asyncio.run(search_with_embedding())
+```
+
+## Advanced Search Methods
+
+### search_with_queries_async(queries, target_quarters, target_quarter, ticker=None)
+
+Run multiple queries in parallel, merge and deduplicate by citation.
+
+<ParamField path="queries" type="List[str]">
+  List of search queries to execute in parallel
+</ParamField>
+
+<ParamField path="target_quarters" type="List[str]">
+  List of quarters to search (e.g., ['2025_q1', '2025_q2'])
+</ParamField>
+
+<ParamField path="target_quarter" type="str">
+  Single quarter identifier or "multiple"
+</ParamField>
+
+<ParamField path="ticker" type="Optional[str]" default="None">
+  Optional ticker symbol to filter results
+</ParamField>
+
+**Returns:** `List[Dict[str, Any]]` - Deduplicated and merged results
+
+```python
+import asyncio
+
+async def multi_query_search():
+    results = await search_engine.search_with_queries_async(
+        queries=[
+            "What is Apple's revenue growth?",
+            "How did Apple perform financially?",
+            "Apple revenue trends"
+        ],
+        target_quarters=['2024_q4', '2025_q1'],
+        target_quarter='multiple',
+        ticker='AAPL'
+    )
+    return results
+
+results = asyncio.run(multi_query_search())
+```
+
+### follow_up_search_async(question, has_tickers, is_general_question, is_multi_ticker, tickers_to_process, target_quarter, target_quarters)
+
+Perform a single follow-up search with hybrid search (vector + keyword).
+
+<ParamField path="question" type="str">
+  Follow-up question to search
+</ParamField>
+
+<ParamField path="has_tickers" type="bool">
+  Whether the query includes ticker symbols
+</ParamField>
+
+<ParamField path="is_general_question" type="bool">
+  Whether this is a general (non-ticker-specific) question
+</ParamField>
+
+<ParamField path="is_multi_ticker" type="bool">
+  Whether multiple tickers are involved
+</ParamField>
+
+<ParamField path="tickers_to_process" type="List[str]">
+  List of ticker symbols to process
+</ParamField>
+
+<ParamField path="target_quarter" type="Optional[str]">
+  Target quarter or None
+</ParamField>
+
+<ParamField path="target_quarters" type="List[str]">
+  List of quarters to search
+</ParamField>
+
+**Returns:** `List[Dict[str, Any]]` - Search results
+
+```python
+import asyncio
+
+async def follow_up():
+    results = await search_engine.follow_up_search_async(
+        question="What about operating margins?",
+        has_tickers=True,
+        is_general_question=False,
+        is_multi_ticker=False,
+        tickers_to_process=['AAPL'],
+        target_quarter='2025_q1',
+        target_quarters=['2025_q1']
+    )
+    return results
+
+results = asyncio.run(follow_up())
+```
+
+### follow_up_search_parallel_async(follow_up_questions, ...)
+
+Run multiple follow-up questions in parallel, merge and deduplicate by citation.
+
+<ParamField path="follow_up_questions" type="List[str]">
+  List of follow-up questions to execute in parallel
+</ParamField>
+
+**Other parameters:** Same as `follow_up_search_async`
+
+**Returns:** `List[Dict[str, Any]]` - Deduplicated merged results
+
+```python
+import asyncio
+
+async def parallel_follow_up():
+    results = await search_engine.follow_up_search_parallel_async(
+        follow_up_questions=[
+            "What about profit margins?",
+            "How did expenses change?",
+            "What was the guidance?"
+        ],
+        has_tickers=True,
+        is_general_question=False,
+        is_multi_ticker=False,
+        tickers_to_process=['MSFT'],
+        target_quarter='2025_q1',
+        target_quarters=['2025_q1']
+    )
+    return results
+
+results = asyncio.run(parallel_follow_up())
+```
+
+## Internal Methods
+
+### _search_multiple_quarters_async(query, target_quarters, chunks_per_quarter=None)
+
+Async version of multi-quarter search using parallel execution.
+
+<ParamField path="query" type="str">
+  Search query
+</ParamField>
+
+<ParamField path="target_quarters" type="List[str]">
+  Quarters to search in parallel
+</ParamField>
+
+<ParamField path="chunks_per_quarter" type="int" default="None">
+  Number of chunks to retrieve per quarter. If None, uses config default
+</ParamField>
+
+**Returns:** `List[Dict[str, Any]]` - Combined and ranked results from all quarters
+
+### _search_keywords(query, max_results=None, target_quarter=None)
+
+Search using PostgreSQL full-text search with keywords.
+
+<ParamField path="query" type="str">
+  Search query to extract keywords from
+</ParamField>
+
+<ParamField path="max_results" type="int" default="None">
+  Maximum results. If None, uses keyword_max_results from config (default: 10)
+</ParamField>
+
+<ParamField path="target_quarter" type="str" default="None">
+  Optional quarter filter
+</ParamField>
+
+**Returns:** `List[Dict[str, Any]]` - Keyword search results with ts_rank scores
+
+### _search_keywords_with_ticker(query, ticker, target_quarter=None)
+
+Search using PostgreSQL full-text search with keywords and ticker filtering.
+
+<ParamField path="query" type="str">
+  Search query
+</ParamField>
+
+<ParamField path="ticker" type="str">
+  Ticker symbol to filter by
+</ParamField>
+
+<ParamField path="target_quarter" type="str" default="None">
+  Optional quarter filter
+</ParamField>
+
+**Returns:** `List[Dict[str, Any]]` - Filtered keyword search results
+
+## Search Result Structure
+
+Each search result is a dictionary with the following structure:
+
+```python
+{
+    'chunk_text': str,          # The text content of the chunk
+    'similarity': float,        # Similarity score (0-1, higher is better)
+    'distance': float,          # Distance metric (lower is better)
+    'metadata': dict,           # Additional metadata
+    'citation': int,            # Chunk index for citation
+    'year': int,                # Year of the data
+    'quarter': int,             # Quarter number (1-4)
+    'ticker': str,              # Stock ticker symbol
+    'search_type': str,         # 'vector', 'keyword', or 'hybrid'
+    'char_offset': int,         # Character offset in original document
+    'chunk_length': int,        # Length of the chunk
+    'source_quarter': str       # Source quarter identifier (for multi-quarter)
+}
+```
+
+## Hybrid Search Configuration
+
+The search engine combines vector and keyword search results:
+
+<ResponseField name="hybrid_search_enabled" type="bool" default="True">
+  Enable/disable hybrid search. If False, returns empty results
+</ResponseField>
+
+<ResponseField name="vector_weight" type="float" default="0.7">
+  Weight for vector search results (0-1)
+</ResponseField>
+
+<ResponseField name="keyword_weight" type="float" default="0.3">
+  Weight for keyword search results (0-1)
+</ResponseField>
+
+<ResponseField name="similarity_threshold" type="float" default="0.3">
+  Minimum similarity threshold for results
+</ResponseField>
+
+<ResponseField name="parallel_retrieval_enabled" type="bool" default="True">
+  Enable parallel execution of vector and keyword searches
+</ResponseField>
+
+<ResponseField name="embedding_model" type="str" default="sentence-transformers/all-MiniLM-L6-v2">
+  SentenceTransformer model to use for embeddings
+</ResponseField>
+
+## Usage Examples
+
+<Tabs>
+  <Tab title="Basic Sync Search">
+    ```python
+    from agent.rag.search_engine import SearchEngine
+    from agent.rag.config import Config
+    from agent.rag.database_manager import DatabaseManager
+
+    # Initialize
+    config = Config()
+    db_manager = DatabaseManager(config)
+    search_engine = SearchEngine(config, db_manager)
+
+    # Perform search
+    results = search_engine.search_similar_chunks(
+        query="What is Apple's revenue growth in Q1 2025?",
+        max_results=20,
+        target_quarter="2025_q1"
+    )
+
+    # Process results
+    for result in results:
+        print(f"Score: {result['similarity']:.3f}")
+        print(f"Ticker: {result['ticker']}")
+        print(f"Text: {result['chunk_text'][:100]}...")
+        print()
+    ```
+  </Tab>
+  <Tab title="Async Multi-Query">
+    ```python
+    import asyncio
+    from agent.rag.search_engine import SearchEngine
+    from agent.rag.config import Config
+    from agent.rag.database_manager import DatabaseManager
+
+    async def search_multiple_queries():
+        # Initialize
+        config = Config()
+        db_manager = DatabaseManager(config)
+        search_engine = SearchEngine(config, db_manager)
+
+        # Multiple related queries for better coverage
+        results = await search_engine.search_with_queries_async(
+            queries=[
+                "Microsoft cloud revenue growth",
+                "Azure performance metrics",
+                "Cloud services financial results"
+            ],
+            target_quarters=['2024_q3', '2024_q4', '2025_q1'],
+            target_quarter='multiple',
+            ticker='MSFT'
+        )
+
+        return results
+
+    # Run async search
+    results = asyncio.run(search_multiple_queries())
+    print(f"Found {len(results)} unique results")
+    ```
+  </Tab>
+  <Tab title="Multi-Quarter Search">
+    ```python
+    import asyncio
+    from agent.rag.search_engine import SearchEngine
+    from agent.rag.config import Config
+    from agent.rag.database_manager import DatabaseManager
+
+    async def search_year_over_year():
+        config = Config()
+        db_manager = DatabaseManager(config)
+        search_engine = SearchEngine(config, db_manager)
+
+        # Search across multiple quarters
+        results = await search_engine._search_multiple_quarters_async(
+            query="Revenue and profit trends",
+            target_quarters=['2024_q1', '2024_q2', '2024_q3', '2024_q4'],
+            chunks_per_quarter=10
+        )
+
+        # Results are distributed evenly across quarters
+        # and ranked by similarity
+        return results
+
+    results = asyncio.run(search_year_over_year())
+    
+    # Group by quarter
+    by_quarter = {}
+    for r in results:
+        q = r['source_quarter']
+        if q not in by_quarter:
+            by_quarter[q] = []
+        by_quarter[q].append(r)
+    
+    for quarter, chunks in by_quarter.items():
+        print(f"{quarter}: {len(chunks)} chunks")
+    ```
+  </Tab>
+</Tabs>
+
+## Performance Characteristics
+
+### Search Speed
+
+- **Vector Search**: Fast with proper database indexing (typically &lt;100ms)
+- **Keyword Search**: Very fast using PostgreSQL full-text search (&lt;50ms)
+- **Hybrid Search**: Combined time when parallel retrieval is enabled (~100ms)
+
+### Parallel Execution
+
+<CardGroup cols={2}>
+  <Card title="Multi-Quarter" icon="layer-group">
+    Quarters are searched in parallel using asyncio.gather
+  </Card>
+  <Card title="Vector + Keyword" icon="arrows-split-up-and-left">
+    When parallel_retrieval_enabled, both searches run simultaneously
+  </Card>
+  <Card title="Multi-Query" icon="list">
+    Multiple queries executed in parallel and deduplicated
+  </Card>
+  <Card title="Thread Pool" icon="gears">
+    CPU-bound embedding operations run in thread pool to prevent blocking
+  </Card>
+</CardGroup>
+
+### Deduplication
+
+Results are deduplicated by citation (chunk index) when merging:
+- Keeps the result with the best score (lowest distance)
+- Prevents duplicate chunks in final results
+- Applied in multi-query and follow-up searches
+
+## Logging
+
+The search engine provides detailed logging:
+
+```python
+import logging
+
+# Enable search logging
+logging.basicConfig(level=logging.INFO)
+
+# Specific loggers:
+rag_logger = logging.getLogger('rag_system')
+rag_logger.setLevel(logging.INFO)
+```
+
+**Log messages include:**
+- Query embedding generation time
+- Vector search results count
+- Keyword search results count
+- Result combination time
+- Total search time
+- Per-quarter search results
+
+## Error Handling
+
+The search engine handles errors gracefully:
+
+- **Embedding Errors**: Logged and returns empty results
+- **Database Errors**: Caught and logged, returns empty results
+- **Query Parsing Errors**: Logged with warning, attempts fallback
+- **Multi-Quarter Failures**: Individual quarter failures don't stop other quarters
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="RAGAgent" icon="brain" href="/api/python/rag-agent">
+    Main agent that orchestrates search operations
+  </Card>
+  <Card title="Agent" icon="robot" href="/api/python/agent">
+    Top-level agent interface
+  </Card>
+</CardGroup>

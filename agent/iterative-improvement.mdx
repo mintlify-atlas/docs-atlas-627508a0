@@ -1,0 +1,755 @@
+---
+title: Iterative Improvement
+description: Self-reflection loop with quality evaluation and dynamic follow-up strategy
+---
+
+## Overview
+
+The agent performs **iterative self-improvement** until the answer meets quality thresholds. This is a key differentiator from single-pass RAG systems.
+
+<Info>
+The agent evaluates its own answers, identifies gaps, and searches for additional information until confident or max iterations reached.
+</Info>
+
+## Iteration Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    ITERATION LOOP                                │
+│                                                                  │
+│  ┌──────────────────┐                                           │
+│  │ Generate Answer  │◄──────────────────────────────────┐       │
+│  └────────┬─────────┘                                   │       │
+│           │                                             │       │
+│           ▼                                             │       │
+│  ┌──────────────────┐                                   │       │
+│  │ Evaluate Quality │                                   │       │
+│  │ • completeness   │                                   │       │
+│  │ • specificity    │                                   │       │
+│  │ • accuracy       │                                   │       │
+│  │ • vs. reasoning  │ ← Checks if reasoning goals met   │       │
+│  └────────┬─────────┘                                   │       │
+│           │                                             │       │
+│           ▼                                             │       │
+│  ┌──────────────────┐    YES    ┌─────────────────┐    │       │
+│  │ Confidence < 90% │─────────► │ Search for more │────┘       │
+│  │ & iterations left│           │ context (tools) │            │
+│  └────────┬─────────┘           └─────────────────┘            │
+│           │ NO                                                  │
+│           ▼                                                     │
+│     ┌───────────┐                                               │
+│     │  OUTPUT   │                                               │
+│     └───────────┘                                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Quality Evaluation
+
+The agent uses a **strict multi-dimensional scoring system** (0-100 scale) to evaluate answer quality.
+
+### Evaluation Dimensions
+
+<AccordionGroup>
+  <Accordion title="Completeness Score (0-100)">
+    **Question:** Does the answer fully address the question?
+
+    **Criteria:**
+    - All parts of the question answered
+    - No critical information missing
+    - Reasoning goals from Stage 2 met
+
+    **Example:**
+    ```
+    Question: "What was Apple's Q4 revenue and how does it compare to Q3?"
+    
+    Answer A (Score: 50):
+    "Apple's Q4 revenue was $89.5B."
+    ↓ Missing comparison to Q3
+    
+    Answer B (Score: 100):
+    "Apple's Q4 revenue was $89.5B, up from $85.8B in Q3, 
+    representing a 4.3% sequential increase."
+    ↓ Complete answer
+    ```
+  </Accordion>
+
+  <Accordion title="Specificity Score (0-100)">
+    **Question:** Does it include specific numbers, quotes, and details?
+
+    **Criteria:**
+    - Exact financial figures (not "increased significantly")
+    - Direct quotes from transcripts/filings
+    - Specific time periods (Q1 2025, not "recently")
+    - Proper citations
+
+    **Example:**
+    ```
+    Low Specificity (Score: 40):
+    "Management was optimistic about AI."
+    
+    High Specificity (Score: 95):
+    "CEO Tim Cook stated 'we see AI as transformative for our 
+    products' and noted AI features drove a 12% increase in iPhone 
+    upgrades [1]."
+    ```
+  </Accordion>
+
+  <Accordion title="Accuracy Score (0-100)">
+    **Question:** Is the information factually correct based on sources?
+
+    **Criteria:**
+    - Numbers match source material exactly
+    - No hallucinated information
+    - Calculations performed correctly
+    - Citations point to correct sources
+
+    **Verification:**
+    - Cross-reference numbers against chunks
+    - Validate calculations (e.g., growth rates)
+    - Ensure quotes are verbatim
+  </Accordion>
+
+  <Accordion title="Clarity Score (0-100)">
+    **Question:** Is the response well-structured and easy to understand?
+
+    **Criteria:**
+    - Logical organization
+    - Clear language (avoid jargon where possible)
+    - Proper formatting (bullets, sections)
+    - Smooth flow between ideas
+  </Accordion>
+</AccordionGroup>
+
+### Overall Confidence Calculation
+
+```python
+overall_confidence = (
+    0.35 * completeness_score +
+    0.30 * specificity_score +
+    0.25 * accuracy_score +
+    0.10 * clarity_score
+) / 100  # Normalize to 0-1 scale
+```
+
+<Note>
+Weights prioritize completeness and specificity, as these are most critical for financial Q&A.
+</Note>
+
+## Evaluation Process
+
+<Steps>
+  <Step title="Generate evaluation prompt">
+    ```python
+    def evaluate_answer_quality(question, answer, reasoning, chunks):
+        """
+        LLM evaluates answer against:
+        - Original question
+        - Research reasoning (from Stage 2)
+        - Available source material (chunks)
+        """
+    ```
+  </Step>
+  <Step title="LLM scores each dimension">
+    Returns structured evaluation:
+
+    ```json
+    {
+      "completeness_score": 85,
+      "specificity_score": 90,
+      "accuracy_score": 95,
+      "clarity_score": 88,
+      "overall_confidence": 0.89,
+      "issues": [
+        "Missing year-over-year comparison"
+      ],
+      "missing_info": [
+        "Prior year Q4 revenue figure"
+      ],
+      "suggestions": [
+        "Search for Q4 2023 revenue data"
+      ]
+    }
+    ```
+  </Step>
+  <Step title="Check against threshold">
+    Compare to answer mode threshold:
+
+    - `direct`: 0.70
+    - `standard`: 0.80
+    - `detailed`: 0.90
+    - `deep_search`: 0.95
+  </Step>
+  <Step title="Stream evaluation to frontend">
+    Event type: `agent_decision`
+
+    ```json
+    {
+      "type": "agent_decision",
+      "message": "Answer quality: 89%. Missing YoY comparison.",
+      "data": {
+        "confidence": 0.89,
+        "issues": ["Missing year-over-year comparison"],
+        "will_iterate": true
+      }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Follow-Up Search Strategy
+
+When the agent needs more information, it generates **search-optimized keyword phrases** (not verbose questions).
+
+### Why Keyword Phrases?
+
+<Tabs>
+  <Tab title="Problem with Questions">
+    **OLD Approach (verbose questions):**
+    ```
+    ❌ "What specific revenue growth percentage was reported and how does
+       it compare to the previous quarter?"
+    ❌ "Did executives provide updated capex guidance for 2025, and what
+       portion was specifically tied to AI?"
+    ```
+
+    **Issues:**
+    - Question framing adds noise ("What", "How", "Did")
+    - Doesn't match vector search patterns
+    - Too verbose for semantic similarity
+  </Tab>
+  <Tab title="Solution: Keywords">
+    **NEW Approach (search-optimized keywords):**
+    ```
+    ✅ "revenue growth percentage quarter comparison"
+    ✅ "capex guidance 2025 AI allocation"
+    ✅ "specific metrics last three quarters"
+    ```
+
+    **Benefits:**
+    - Better semantic search - vector databases prefer declarative phrases
+    - Removes noise - no question framing words
+    - Focuses on entities - extracts core concepts and metrics
+    - Preserves context - includes tickers and time periods
+  </Tab>
+</Tabs>
+
+### Keyword Phrase Generation
+
+<CodeGroup>
+```python Implementation
+def generate_followup_keywords(evaluation, reasoning, question):
+    """
+    Input:
+        evaluation.missing_info = ["Prior year Q4 revenue figure"]
+        evaluation.suggestions = ["Search for Q4 2023 revenue data"]
+    
+    Output:
+        [
+            "Q4 2023 revenue quarterly results",
+            "year over year revenue comparison 2024 2023"
+        ]
+    
+    Characteristics:
+    - Declarative keyword phrases (not questions)
+    - Include temporal scope (Q4 2023, 2024 vs 2023)
+    - Extract entities (revenue, quarterly results)
+    - Remove question words (what, how, did)
+    """
+```
+
+```json Example Output
+{
+  "followup_keywords": [
+    "capex guidance 2025 AI allocation",
+    "operating margin trends last three quarters",
+    "specific cloud revenue growth metrics"
+  ],
+  "needs_transcript_search": true,
+  "needs_news_search": false
+}
+```
+</CodeGroup>
+
+### Parallel Quarter Search
+
+Each keyword phrase searches **ALL target quarters** in parallel:
+
+<Expandable title="Parallel Execution Example">
+  ```
+  Question: "What's the capex trend for last 3 quarters?"
+  Target quarters: [2024_q4, 2025_q1, 2025_q2]
+  
+  Follow-up keyword: "capex guidance investment allocation"
+  
+  Execution:
+  ├── Search "capex guidance investment allocation" in 2024_q4 (parallel)
+  ├── Search "capex guidance investment allocation" in 2025_q1 (parallel)
+  └── Search "capex guidance investment allocation" in 2025_q2 (parallel)
+  
+  Result: All chunks deduped by citation, merged into context
+  ```
+
+  **Why this matters:** If "capex guidance" appears in Q2 and Q4 but not Q1, both Q2 and Q4 chunks are retrieved.
+</Expandable>
+
+### Tool Selection
+
+The agent can request additional searches from any data source:
+
+<Tabs>
+  <Tab title="Transcript Search">
+    ```json
+    {
+      "needs_transcript_search": true,
+      "followup_keywords": [
+        "margin trends profitability metrics",
+        "guidance outlook projections"
+      ]
+    }
+    ```
+
+    Searches ALL target quarters with each keyword phrase.
+  </Tab>
+  <Tab title="News Search">
+    ```json
+    {
+      "needs_news_search": true,
+      "news_query": "Microsoft cloud revenue latest developments"
+    }
+    ```
+
+    Fetches real-time news to supplement historical data.
+  </Tab>
+  <Tab title="Both">
+    ```json
+    {
+      "needs_transcript_search": true,
+      "needs_news_search": true,
+      "followup_keywords": ["AI infrastructure capex"],
+      "news_query": "AI infrastructure investments 2025"
+    }
+    ```
+
+    Can request multiple sources in single iteration.
+  </Tab>
+</Tabs>
+
+## Iteration Flow
+
+<Steps>
+  <Step title="Iteration N starts">
+    Stream event: `iteration_start`
+
+    ```json
+    {
+      "type": "iteration_start",
+      "data": {"iteration": 2, "max_iterations": 3}
+    }
+    ```
+  </Step>
+  <Step title="Evaluate previous answer">
+    LLM scores quality and identifies gaps
+  </Step>
+  <Step title="Check termination conditions">
+    ```python
+    if confidence >= threshold:
+        return answer  # Early termination
+    
+    if iteration >= max_iterations:
+        return answer  # Max iterations reached
+    
+    if no followup_keywords:
+        return answer  # Agent satisfied
+    ```
+  </Step>
+  <Step title="Generate follow-up keywords">
+    Stream event: `iteration_followup`
+
+    ```json
+    {
+      "type": "iteration_followup",
+      "message": "Searching for: capex guidance, margin trends",
+      "data": {
+        "keywords": ["capex guidance 2025", "margin trends profitability"]
+      }
+    }
+    ```
+  </Step>
+  <Step title="Execute searches">
+    - Parallel quarter search for each keyword
+    - Optional news search
+    - Deduplicate and merge new chunks
+  </Step>
+  <Step title="Stream new chunks found">
+    Event: `iteration_search`
+
+    ```json
+    {
+      "type": "iteration_search",
+      "message": "Found 8 new chunks",
+      "data": {"chunks_added": 8}
+    }
+    ```
+  </Step>
+  <Step title="Regenerate answer">
+    Use ALL accumulated chunks (previous + new)
+  </Step>
+  <Step title="Mark iteration complete">
+    Event: `iteration_complete`
+
+    ```json
+    {
+      "type": "iteration_complete",
+      "data": {
+        "iteration": 2,
+        "confidence": 0.91,
+        "will_continue": false
+      }
+    }
+    ```
+  </Step>
+</Steps>
+
+## Answer Mode Configuration
+
+Different answer modes balance speed vs. thoroughness:
+
+<Tabs>
+  <Tab title="Direct Mode">
+    **Configuration:**
+    ```python
+    {
+        "max_iterations": 2,
+        "max_tokens": 2000,
+        "confidence_threshold": 0.7,
+    }
+    ```
+
+    **When Used:**
+    - Quick factual lookups
+    - Single-number questions
+    - Time-sensitive queries
+
+    **Example Questions:**
+    - "What was Q4 revenue?"
+    - "When is the next earnings call?"
+    - "What's the current stock price target?"
+
+    **Typical Performance:**
+    - 1-2 iterations
+    - ~5-8 seconds
+  </Tab>
+  <Tab title="Standard Mode (Default)">
+    **Configuration:**
+    ```python
+    {
+        "max_iterations": 3,
+        "max_tokens": 6000,
+        "confidence_threshold": 0.8,
+    }
+    ```
+
+    **When Used:**
+    - Default for most questions
+    - Balanced analysis needs
+    - Moderate complexity
+
+    **Example Questions:**
+    - "Explain Microsoft's cloud strategy"
+    - "How is Azure performing vs AWS?"
+    - "What are the key risk factors?"
+
+    **Typical Performance:**
+    - 2-3 iterations
+    - ~10-15 seconds
+  </Tab>
+  <Tab title="Detailed Mode">
+    **Configuration:**
+    ```python
+    {
+        "max_iterations": 4,
+        "max_tokens": 16000,
+        "confidence_threshold": 0.9,
+    }
+    ```
+
+    **When Used:**
+    - Comprehensive analysis
+    - Multi-part questions
+    - Research-depth answers
+
+    **Example Questions:**
+    - "Analyze margin trends over last 3 quarters and explain drivers"
+    - "Compare revenue mix across segments for AAPL vs MSFT"
+    - "What factors contributed to operating expense changes?"
+
+    **Typical Performance:**
+    - 3-4 iterations
+    - ~15-25 seconds
+  </Tab>
+  <Tab title="Deep Search Mode">
+    **Configuration:**
+    ```python
+    {
+        "max_iterations": 10,
+        "max_tokens": 20000,
+        "confidence_threshold": 0.95,
+    }
+    ```
+
+    **When Used:**
+    - Reserved for future use
+    - Not currently emitted by combined reasoning stage
+    - Potential for exhaustive research
+
+    **Note:**
+    <Warning>
+    This mode is configured but not currently used in production. The agent may suggest "Want me to search thoroughly?" but doesn't automatically select this mode.
+    </Warning>
+  </Tab>
+</Tabs>
+
+## Termination Conditions
+
+The iteration loop stops when any of these conditions are met:
+
+<AccordionGroup>
+  <Accordion title="Confidence Threshold Met">
+    ```python
+    if overall_confidence >= threshold:
+        logger.info(f"Confidence {confidence:.0%} >= {threshold:.0%}, stopping")
+        return answer
+    ```
+
+    **Threshold by mode:**
+    - Direct: 70%
+    - Standard: 80%
+    - Detailed: 90%
+    - Deep Search: 95%
+  </Accordion>
+
+  <Accordion title="Max Iterations Reached">
+    ```python
+    if iteration >= max_iterations:
+        logger.info(f"Max iterations ({max_iterations}) reached")
+        return answer
+    ```
+
+    **Limits by mode:**
+    - Direct: 2
+    - Standard: 3
+    - Detailed: 4
+    - Deep Search: 10
+  </Accordion>
+
+  <Accordion title="Agent Satisfaction">
+    ```python
+    if evaluation.get("is_sufficient", False):
+        logger.info("Agent determined answer is sufficient")
+        return answer
+    ```
+
+    Agent can decide answer is good enough even below threshold.
+  </Accordion>
+
+  <Accordion title="No Follow-Up Keywords">
+    ```python
+    if not followup_keywords:
+        logger.info("No additional searches identified")
+        return answer
+    ```
+
+    If agent can't generate meaningful follow-up searches, stop.
+  </Accordion>
+</AccordionGroup>
+
+## Practical Examples
+
+<Tabs>
+  <Tab title="Example 1: Quick Convergence">
+    **Question:** "What was Apple's Q4 2024 revenue?"
+
+    **Mode:** Direct (max 2 iterations, 70% threshold)
+
+    ---
+
+    **Iteration 1:**
+    ```
+    Initial search: "Q4 2024 revenue quarterly results"
+    Retrieved: 12 chunks
+    
+    Answer: "Apple's Q4 2024 revenue was $94.9B [1]."
+    
+    Evaluation:
+    - Completeness: 95 (direct answer to question)
+    - Specificity: 100 (exact number with citation)
+    - Accuracy: 100 (matches source)
+    - Clarity: 95 (clear and concise)
+    - Overall: 0.97 >= 0.70 ✓
+    ```
+
+    **Result:** 1 iteration, ~6 seconds, early termination
+  </Tab>
+  <Tab title="Example 2: Needs More Context">
+    **Question:** "How has Microsoft's cloud revenue grown and what's driving it?"
+
+    **Mode:** Standard (max 3 iterations, 80% threshold)
+
+    ---
+
+    **Iteration 1:**
+    ```
+    Initial search: "cloud revenue growth Azure"
+    Retrieved: 15 chunks
+    
+    Answer: "Microsoft's cloud revenue grew 22% YoY to $28.5B [1]."
+    
+    Evaluation:
+    - Completeness: 60 (missing "what's driving it")
+    - Specificity: 90 (has numbers)
+    - Accuracy: 95 (correct figures)
+    - Clarity: 85
+    - Overall: 0.75 < 0.80 ✗
+    
+    Missing: Growth drivers, segment breakdown
+    ```
+
+    **Iteration 2:**
+    ```
+    Follow-up keywords:
+    - "Azure growth drivers AI adoption"
+    - "cloud segment breakdown Office 365"
+    
+    Retrieved: 8 new chunks
+    Total: 23 chunks
+    
+    Answer: "Microsoft's cloud revenue grew 22% YoY to $28.5B [1], 
+    driven by Azure growth of 31% [2] and Office 365 commercial growth 
+    of 15% [3]. Management cited AI adoption as a key driver, with AI 
+    services contributing 6 percentage points to Azure growth [4]."
+    
+    Evaluation:
+    - Completeness: 95 (addresses both parts)
+    - Specificity: 95 (specific numbers and drivers)
+    - Accuracy: 95
+    - Clarity: 90
+    - Overall: 0.94 >= 0.80 ✓
+    ```
+
+    **Result:** 2 iterations, ~12 seconds, early termination
+  </Tab>
+  <Tab title="Example 3: Complex Multi-Part">
+    **Question:** "Compare AAPL and MSFT operating margins over last 3 quarters and explain any trends."
+
+    **Mode:** Detailed (max 4 iterations, 90% threshold)
+
+    ---
+
+    **Iteration 1:**
+    ```
+    Initial search (parallel per ticker):
+    - AAPL: "operating margin profitability" → quarters [Q2, Q3, Q4]
+    - MSFT: "operating margin profitability" → quarters [Q2, Q3, Q4]
+    
+    Retrieved: 30 chunks (15 per company)
+    
+    Answer: Basic margin numbers for each quarter, no trend analysis
+    
+    Evaluation:
+    - Completeness: 70 (has numbers, missing trend explanation)
+    - Specificity: 85
+    - Accuracy: 90
+    - Clarity: 80
+    - Overall: 0.79 < 0.90 ✗
+    ```
+
+    **Iteration 2:**
+    ```
+    Follow-up keywords:
+    - "operating expense trends cost efficiency"
+    - "margin drivers profitability improvements"
+    
+    Retrieved: 12 new chunks
+    Total: 42 chunks
+    
+    Answer: Added trend analysis, still missing comparative insights
+    
+    Evaluation: 0.84 < 0.90 ✗
+    ```
+
+    **Iteration 3:**
+    ```
+    Follow-up keywords:
+    - "margin comparison competitive positioning"
+    
+    Retrieved: 6 new chunks
+    Total: 48 chunks
+    
+    Answer: Complete comparative analysis with trends and drivers
+    
+    Evaluation:
+    - Completeness: 95 (all parts addressed)
+    - Specificity: 92 (detailed numbers and quotes)
+    - Accuracy: 95
+    - Clarity: 92
+    - Overall: 0.94 >= 0.90 ✓
+    ```
+
+    **Result:** 3 iterations, ~18 seconds, early termination
+  </Tab>
+</Tabs>
+
+## Performance Characteristics
+
+### Average Iteration Counts
+
+| Answer Mode | Avg Iterations | Avg Time |
+|-------------|---------------|----------|
+| Direct | 1.3 | ~6s |
+| Standard | 2.1 | ~12s |
+| Detailed | 2.8 | ~18s |
+| Deep Search | N/A | N/A |
+
+### Early Termination Rate
+
+<Info>
+~65% of questions terminate early (before max iterations) due to confidence threshold being met.
+</Info>
+
+### Chunk Accumulation
+
+```
+Typical chunk counts:
+- Iteration 1: 15-20 chunks
+- Iteration 2: +8-12 chunks (23-32 total)
+- Iteration 3: +4-8 chunks (27-40 total)
+- Iteration 4: +2-5 chunks (29-45 total)
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="For Users">
+    - **Ask complete questions** - "What was revenue and why did it change?" gets better results than two separate questions
+    - **Specify time periods** - "last 3 quarters" is clearer than "recently"
+    - **Trust the mode detection** - The agent automatically selects appropriate depth
+  </Accordion>
+
+  <Accordion title="For Developers">
+    - **Monitor evaluation scores** - Track which dimensions frequently score low
+    - **Tune thresholds carefully** - Lower thresholds = faster but less thorough
+    - **Log follow-up keywords** - Understand what additional searches are needed
+    - **Watch for infinite loops** - Ensure follow-up keywords are progressively different
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="SEC Agent" icon="file-invoice-dollar" href="/agent/sec-agent">
+    Learn about the specialized 10-K agent's iterative retrieval
+  </Card>
+  <Card title="Pipeline Stages" icon="layer-group" href="/agent/pipeline-stages">
+    Review the complete 6-stage pipeline
+  </Card>
+</CardGroup>

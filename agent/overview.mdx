@@ -1,0 +1,355 @@
+---
+title: Agent System Overview
+description: Core agent system implementing Retrieval-Augmented Generation with semantic routing and iterative self-improvement
+---
+
+## Introduction
+
+The Finance Agent system implements **Retrieval-Augmented Generation (RAG)** with **semantic data source routing**, **research planning**, and **iterative self-improvement** for financial Q&A. This powers the chat and analysis features on Finance Agent.
+
+## Key Concepts
+
+<CardGroup cols={2}>
+  <Card title="Semantic Routing" icon="route">
+    Routes to data sources based on question **intent**, not keywords
+  </Card>
+  <Card title="Research Planning" icon="clipboard-list">
+    Agent explains reasoning before searching ("I need to find...")
+  </Card>
+  <Card title="Multi-Source RAG" icon="database">
+    Combines earnings transcripts, SEC filings, and news
+  </Card>
+  <Card title="Self-Reflection" icon="arrows-rotate">
+    Evaluates answer quality and iterates until confident
+  </Card>
+</CardGroup>
+
+## Architecture
+
+The agent follows a 6-stage pipeline with three specialized data source tools:
+
+```
+                             AGENT PIPELINE
+═══════════════════════════════════════════════════════════════════════
+
+┌──────────┐    ┌───────────────────┐    ┌──────────────────────────┐
+│ Question │───►│ Question Analyzer │───►│  Semantic Data Routing   │
+└──────────┘    │  (LLM via config) │    │                          │
+                │                   │    │  • Earnings Transcripts  │
+                │ Extracts:         │    │  • SEC 10-K Filings      │
+                │ • Tickers         │    │  • Real-Time News        │
+                │ • Time periods    │    │  • Hybrid (multi-source) │
+                │ • Intent          │    └────────────┬─────────────┘
+                └───────────────────┘                 │
+                                                      ▼
+                ┌─────────────────────────────────────────────────────┐
+                │              RESEARCH PLANNING                       │
+                │  Agent generates reasoning: "I need to find..."     │
+                └────────────────────────┬────────────────────────────┘
+                                         ▼
+                ┌─────────────────────────────────────────────────────┐
+                │                  RETRIEVAL LAYER                     │
+                │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
+                │  │  Earnings   │  │  SEC 10-K   │  │   Tavily    │  │
+                │  │ Transcripts │  │   Filings   │  │    News     │  │
+                │  │             │  │             │  │             │  │
+                │  │ Vector DB   │  │ Section     │  │  Live API   │  │
+                │  │ + Hybrid    │  │ Routing +   │  │             │  │
+                │  │   Search    │  │ Reranking   │  │             │  │
+                │  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘  │
+                └─────────┴───────────┬────┴────────────────┴─────────┘
+                                      │ ▲
+                                      │ │ Re-query with
+                                      │ │ follow-up questions
+                                      ▼ │
+                ┌─────────────────────────────────────────────────────┐
+                │               ITERATIVE IMPROVEMENT                  │
+                │                                                      │
+                │    ┌──────────┐    ┌──────────┐    ┌──────────┐     │
+                │    │ Generate │───►│ Evaluate │───►│ Iterate? │─────┼───┐
+                │    │  Answer  │    │ Quality  │    │          │     │   │
+                │    └──────────┘    └──────────┘    └──────────┘     │   │
+                │                                         │ NO        │   │ YES
+                └─────────────────────────────────────────┼───────────┘   │
+                                                          ▼               │
+                                                   ┌─────────────┐        │
+                                                   │   ANSWER    │        │
+                                                   │ + Citations │        │
+                                                   └─────────────┘        │
+                                                          ▲               │
+                                                          └───────────────┘
+```
+
+## Semantic Data Source Routing
+
+The agent routes questions based on **intent**, not just keywords. This is a key differentiator from simple keyword matching.
+
+### Data Source Tools
+
+The main agent orchestrates access to **three specialized data source tools**:
+
+<AccordionGroup>
+  <Accordion title="SEC 10-K Filings - Specialized Retrieval Agent">
+    **Currently:** 10-K only (annual reports) | **Coming:** 10-Q, 8-K
+
+    **Best for:**
+    - Annual/full-year financial data, audited figures
+    - Balance sheets, income statements, cash flow statements
+    - Executive compensation, CEO pay, stock awards (ONLY in 10-K!)
+    - Risk factors, legal proceedings, regulatory matters
+    - Detailed business descriptions, segment breakdowns
+    - Multi-year historical comparisons
+    - Total assets, liabilities, debt structure
+
+    **Implementation:** `sec_filings_service_smart_parallel.py`
+
+    See [SEC Agent](/agent/sec-agent) for detailed documentation.
+  </Accordion>
+
+  <Accordion title="Earnings Transcripts - Hybrid Vector + Keyword Search">
+    **Best for:**
+    - Quarterly performance discussions, recent quarter results
+    - Management commentary, executive statements, tone/sentiment
+    - Forward guidance, outlook, projections
+    - Analyst Q&A, investor concerns, management responses
+    - Product launches, strategic initiatives
+    - Quarter-over-quarter comparisons
+
+    **Implementation:** `search_engine.py`
+
+    **Hybrid search weights:**
+    - Vector search: 70% weight (semantic similarity via pgvector)
+    - Keyword search: 30% weight (TF-IDF)
+  </Accordion>
+
+  <Accordion title="Tavily News Search - Real-Time Web Search">
+    **Best for:**
+    - Very recent events (last few days/weeks)
+    - Breaking developments, announcements
+    - Market reactions, stock movements
+    - Recent partnerships, acquisitions, leadership changes
+
+    **Implementation:** `tavily_service.py`
+
+    **Citation format:** `[N1]`, `[N2]`, etc.
+  </Accordion>
+
+  <Accordion title="Hybrid Mode - Multiple Sources">
+    **Best for:**
+    - Questions explicitly requesting multiple perspectives
+    - Comparing official filings with recent developments
+    - Comprehensive analysis needing historical + current data
+
+    Automatically combines sources when needed.
+  </Accordion>
+</AccordionGroup>
+
+### Routing Decision Process
+
+The LLM considers:
+
+1. **Intent** - What is the user trying to learn?
+2. **Time Period** - Annual=10K, Quarterly=Transcripts, Recent=News
+3. **Formality** - Official/Audited=10K, Commentary=Transcripts, Current=News
+4. **Completeness** - Would combining sources provide a better answer?
+
+### Routing Examples
+
+| Question | Routed To | Reasoning |
+|----------|-----------|----------|
+| "What was Apple's Q4 2024 revenue?" | Transcripts | Quarterly data, recent results |
+| "What is Tim Cook's compensation?" | 10-K | Executive compensation only in SEC filings |
+| "Show me Microsoft's balance sheet" | 10-K | Financial statements from annual reports |
+| "What did management say about AI?" | Transcripts | Management commentary from earnings calls |
+| "What's the latest news on NVIDIA?" | News | Recent developments |
+| "Compare 10-K risks with recent news" | Hybrid | Needs multiple sources |
+
+## Answer Modes
+
+The agent configures iteration depth and quality thresholds based on question complexity:
+
+| Mode | Iterations | Confidence | When Used |
+|------|------------|-----------|----------|
+| `direct` | 2 | 70% | Quick factual lookups |
+| `standard` | 3 | 80% | Default balanced analysis |
+| `detailed` | 4 | 90% | Comprehensive research |
+| `deep_search` | 10 | 95% | Reserved (not emitted by current combined reasoning stage) |
+
+<Note>
+The combined reasoning stage currently outputs `direct`, `standard`, or `detailed` only. `deep_search` is reserved for future expansion.
+</Note>
+
+## Database Schema
+
+<Expandable title="PostgreSQL + pgvector Schema">
+  ```sql
+  -- Earnings call transcripts
+  CREATE TABLE transcript_chunks (
+      chunk_text TEXT,              -- 1000 chars, 200 overlap
+      embedding VECTOR(384),        -- all-MiniLM-L6-v2
+      ticker VARCHAR(10),           -- e.g., "AAPL"
+      year INTEGER,                 -- e.g., 2024
+      quarter INTEGER,              -- 1-4
+      metadata JSONB
+  );
+
+  -- 10-K filing text
+  CREATE TABLE ten_k_chunks (
+      chunk_text TEXT,
+      embedding VECTOR(384),
+      sec_section VARCHAR(20),      -- item_1, item_7, item_8, etc.
+      sec_section_title TEXT,       -- Human-readable section name
+      is_financial_statement BOOLEAN
+  );
+
+  -- 10-K extracted tables (JSONB)
+  CREATE TABLE ten_k_tables (
+      content TEXT,                 -- Table data
+      statement_type VARCHAR(50),   -- income_statement, balance_sheet, cash_flow
+      is_financial_statement BOOLEAN
+  );
+  ```
+</Expandable>
+
+## Configuration
+
+### Environment Variables
+
+```bash
+OPENAI_API_KEY=...           # LLM provider key (OpenAI)
+CEREBRAS_API_KEY=...         # LLM provider key (Cerebras)
+TAVILY_API_KEY=...           # Real-time news search
+DATABASE_URL=postgresql://...# Main database
+PG_VECTOR=postgresql://...   # Vector search database
+LOGFIRE_TOKEN=...            # Observability (optional)
+```
+
+### RAG Configuration
+
+<CodeGroup>
+```python rag/config.py
+{
+    "chunks_per_quarter": 15,         # Results per quarter
+    "max_quarters": 12,               # Max 3 years of data
+    "max_tickers": 8,                 # Max companies per query
+
+    # Hybrid search weights
+    "keyword_weight": 0.3,
+    "vector_weight": 0.7,
+
+    # Models
+    "cerebras_model": "qwen-3-235b-a22b-instruct-2507",
+    "openai_model": "gpt-5-nano-2025-08-07",
+    "evaluation_model": "qwen-3-235b-a22b-instruct-2507",
+    "embedding_model": "all-MiniLM-L6-v2",
+    "llm_provider": "cerebras",  # or "openai" | "auto"
+}
+```
+</CodeGroup>
+
+## Key Components
+
+### Core Files
+
+| File | Description |
+|------|------------|
+| `__init__.py` | Public API — exports `Agent`, `RAGAgent`, `create_agent()` |
+| `agent_config.py` | Agent configuration and iteration settings |
+| `prompts.py` | Centralized LLM prompt templates (including planning) |
+| `rag/rag_agent.py` | Orchestration engine with pipeline stages |
+| `rag/question_analyzer.py` | LLM-based semantic routing (provider via config) |
+
+### Data Sources (Tools)
+
+| File | Tool | Description |
+|------|------|------------|
+| `rag/search_engine.py` | Transcript Search | Hybrid vector + keyword search |
+| `rag/sec_filings_service_smart_parallel.py` | 10-K Agent | Planning-driven parallel retrieval |
+| `rag/tavily_service.py` | News Search | Real-time news via Tavily API |
+
+### Supporting Components
+
+| File | Description |
+|------|------------|
+| `rag/response_generator.py` | LLM response generation, evaluation, planning |
+| `rag/database_manager.py` | PostgreSQL/pgvector operations |
+| `rag/conversation_memory.py` | Multi-turn conversation state |
+| `rag/config.py` | RAG configuration |
+
+## Usage Example
+
+```python
+from agent import create_agent
+
+agent = create_agent()
+
+# Earnings transcript question (automatic routing)
+async for event in agent.execute_rag_flow(
+    question="What did $AAPL say about iPhone sales in Q4 2024?",
+    stream=True
+):
+    if event['type'] == 'reasoning':
+        print(f"Planning: {event['message']}")
+    elif event['type'] == 'result':
+        print(f"Answer: {event['data']['answer']}")
+
+# 10-K question (automatically routes to SEC filings)
+result = await agent.execute_rag_flow_async(
+    question="What was Tim Cook's compensation in 2023?"
+)
+
+# News question (automatically routes to Tavily)
+result = await agent.execute_rag_flow_async(
+    question="What's the latest news on $NVDA?"
+)
+
+# Multi-ticker comparison
+async for event in agent.execute_rag_flow(
+    question="Compare $MSFT and $GOOGL cloud revenue",
+    stream=True,
+    max_iterations=4
+):
+    print(event)
+```
+
+## Streaming Events
+
+The agent streams real-time progress events to the frontend:
+
+| Event Type | Description |
+|-----------|------------|
+| `progress` | Generic progress updates |
+| `analysis` | Question analysis complete |
+| `reasoning` | Agent's research planning statement |
+| `news_search` | News search results |
+| `10k_search` | 10-K SEC search results |
+| `iteration_start` | Beginning of iteration N |
+| `agent_decision` | Agent's quality assessment |
+| `iteration_followup` | Follow-up questions being searched |
+| `iteration_search` | New chunks found |
+| `iteration_complete` | Iteration finished |
+| `result` | Final answer with citations |
+| `rejected` | Question rejected (out of scope) |
+| `error` | Error occurred |
+
+## Limitations
+
+- Requires `$TICKER` format for company identification
+- Quarter availability varies by company
+- Companies describe fiscal years differently
+- No real-time stock price data
+- 10-K data limited to 2024-25 filings currently
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Pipeline Stages" icon="layer-group" href="/agent/pipeline-stages">
+    Deep dive into the 6-stage pipeline execution
+  </Card>
+  <Card title="Iterative Improvement" icon="repeat" href="/agent/iterative-improvement">
+    Learn how self-reflection and quality evaluation work
+  </Card>
+  <Card title="SEC Agent" icon="file-invoice-dollar" href="/agent/sec-agent">
+    Specialized 10-K retrieval with 91% accuracy
+  </Card>
+</CardGroup>

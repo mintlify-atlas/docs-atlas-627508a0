@@ -1,0 +1,106 @@
+---
+title: 'Agent'
+description: 'Main agent class for financial Q&A operations'
+icon: 'robot'
+---
+
+## Overview
+
+The `Agent` class (aliased as `RAGAgent`) is the primary interface for the Finance Agent system. It provides a unified agent that handles RAG-based question answering across earnings transcripts, 10-K filings, and news.
+
+## Class Reference
+
+### Agent
+
+`Agent` is an alias for `RAGAgent`, providing backward compatibility while serving as the main entry point.
+
+```python
+from agent import Agent
+
+# Create an agent instance
+agent = Agent(openai_api_key="your-api-key")
+```
+
+### AgentSystem
+
+`AgentSystem` is another alias for `RAGAgent`, providing flexibility in naming conventions.
+
+```python
+from agent import AgentSystem
+
+# Create an agent instance
+agent = AgentSystem(openai_api_key="your-api-key")
+```
+
+## Factory Function
+
+### create_agent()
+
+Factory function to create a new `RAGAgent` instance.
+
+```python
+from agent import create_agent
+
+# Create agent using factory
+agent = create_agent()
+```
+
+<ParamField path="return" type="RAGAgent">
+  Returns a new RAGAgent instance
+</ParamField>
+
+## Module Exports
+
+The agent module exports the following:
+
+- `Agent` - Main agent class (alias for RAGAgent)
+- `RAGAgent` - Core RAG agent implementation
+- `AgentSystem` - Alternative alias for RAGAgent
+- `create_agent` - Factory function
+- `prompts` - Centralized prompts module
+
+## Architecture
+
+The Agent provides:
+
+<CardGroup cols={2}>
+  <Card title="RAG-Based Q&A" icon="magnifying-glass">
+    Vector and keyword search across earnings transcripts, 10-K filings, and news
+  </Card>
+  <Card title="Stock Screening" icon="filter">
+    Fundamental data filtering and analysis
+  </Card>
+  <Card title="Self-Improvement" icon="arrows-rotate">
+    Iterative refinement with quality evaluation
+  </Card>
+  <Card title="Multi-Source" icon="database">
+    Unified access to transcripts, SEC filings, and news
+  </Card>
+</CardGroup>
+
+## Usage Example
+
+```python
+from agent import Agent
+import os
+
+# Initialize the agent
+agent = Agent(openai_api_key=os.getenv("OPENAI_API_KEY"))
+
+# Set database connection (optional)
+agent.set_database_connection(db_connection)
+
+# The agent is now ready to process questions
+# See RAGAgent documentation for detailed usage
+```
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="RAGAgent" icon="brain" href="/api/python/rag-agent">
+    Detailed RAG agent implementation
+  </Card>
+  <Card title="SearchEngine" icon="magnifying-glass" href="/api/python/search-engine">
+    Search operations and hybrid search
+  </Card>
+</CardGroup>

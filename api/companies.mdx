@@ -1,0 +1,396 @@
+---
+title: 'Companies'
+description: 'Search and retrieve company financial data'
+icon: 'building'
+---
+
+## Overview
+
+The Companies API provides access to comprehensive company profiles, financial metrics, and segment data from PostgreSQL databases.
+
+## Search Companies (Public)
+
+Search for companies by ticker, name, sector, or industry without authentication.
+
+**Endpoint**: `GET /companies/public/search`
+
+**Authentication**: Not required
+
+```bash cURL
+curl "https://api.financeagent.com/companies/public/search?query=Tesla&limit=8"
+```
+
+<ParamField query="query" type="string" required>
+  Search term (ticker, company name, sector, or industry)
+</ParamField>
+
+<ParamField query="limit" type="integer" default={8}>
+  Maximum results to return (1-20)
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Whether the search was successful
+</ResponseField>
+
+<ResponseField name="companies" type="array">
+  Array of matching companies
+  <Expandable title="company object">
+    <ResponseField name="symbol" type="string">
+      Stock ticker symbol (e.g., "TSLA")
+    </ResponseField>
+    <ResponseField name="companyName" type="string">
+      Full company name
+    </ResponseField>
+    <ResponseField name="sector" type="string">
+      Business sector
+    </ResponseField>
+    <ResponseField name="industry" type="string">
+      Industry classification
+    </ResponseField>
+    <ResponseField name="marketCap" type="number">
+      Market capitalization
+    </ResponseField>
+    <ResponseField name="country" type="string">
+      Country of incorporation
+    </ResponseField>
+    <ResponseField name="exchangeShortName" type="string">
+      Stock exchange (e.g., "NASDAQ")
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="total_found" type="integer">
+  Number of results returned
+</ResponseField>
+
+<ResponseField name="execution_time" type="number">
+  Query execution time in seconds
+</ResponseField>
+
+## Search Companies (Authenticated)
+
+Search with higher limits and additional features.
+
+**Endpoint**: `GET /companies/search`
+
+**Authentication**: Required
+
+```bash cURL
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  "https://api.financeagent.com/companies/search?query=tech&limit=50"
+```
+
+<ParamField query="query" type="string" required>
+  Search term
+</ParamField>
+
+<ParamField query="limit" type="integer" default={50}>
+  Maximum results (1-200)
+</ParamField>
+
+## Get Company Details
+
+Retrieve comprehensive company information including financials.
+
+**Endpoint**: `GET /companies/{symbol}`
+
+**Authentication**: Required
+
+```bash cURL
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  https://api.financeagent.com/companies/AAPL
+```
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Request status
+</ResponseField>
+
+<ResponseField name="company" type="object">
+  Complete company data
+  <Expandable title="properties">
+    <ResponseField name="symbol" type="string">
+      Ticker symbol
+    </ResponseField>
+    <ResponseField name="companyName" type="string">
+      Company name
+    </ResponseField>
+    <ResponseField name="price" type="number">
+      Current stock price
+    </ResponseField>
+    <ResponseField name="marketCap" type="number">
+      Market capitalization
+    </ResponseField>
+    <ResponseField name="sector" type="string">
+      Business sector
+    </ResponseField>
+    <ResponseField name="industry" type="string">
+      Industry
+    </ResponseField>
+    <ResponseField name="ceo" type="string">
+      CEO name
+    </ResponseField>
+    <ResponseField name="description" type="string">
+      Company description
+    </ResponseField>
+    <ResponseField name="website" type="string">
+      Company website URL
+    </ResponseField>
+    <ResponseField name="priceEarningsRatio" type="number">
+      P/E ratio
+    </ResponseField>
+    <ResponseField name="priceToBookRatio" type="number">
+      P/B ratio
+    </ResponseField>
+    <ResponseField name="returnOnEquity" type="number">
+      ROE percentage
+    </ResponseField>
+    <ResponseField name="revenue" type="number">
+      Latest revenue
+    </ResponseField>
+    <ResponseField name="netIncome" type="number">
+      Latest net income
+    </ResponseField>
+    <ResponseField name="eps" type="number">
+      Earnings per share
+    </ResponseField>
+    <ResponseField name="freeCashFlow" type="number">
+      Free cash flow
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Get TTM Metrics
+
+Retrieve Trailing Twelve Months (TTM) financial metrics.
+
+**Endpoint**: `GET /companies/{symbol}/ttm-metrics`
+
+**Authentication**: Required
+
+```bash cURL
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  https://api.financeagent.com/companies/MSFT/ttm-metrics
+```
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Request status
+</ResponseField>
+
+<ResponseField name="symbol" type="string">
+  Ticker symbol
+</ResponseField>
+
+<ResponseField name="metrics" type="object">
+  TTM financial metrics
+  <Expandable title="properties">
+    <ResponseField name="revenueTtm" type="number">
+      TTM revenue
+    </ResponseField>
+    <ResponseField name="netIncomeTtm" type="number">
+      TTM net income
+    </ResponseField>
+    <ResponseField name="epsTtm" type="number">
+      TTM earnings per share
+    </ResponseField>
+    <ResponseField name="freeCashFlowTtm" type="number">
+      TTM free cash flow
+    </ResponseField>
+    <ResponseField name="revenue_yoy_growth_pct" type="number">
+      Year-over-year revenue growth %
+    </ResponseField>
+    <ResponseField name="netincome_yoy_growth_pct" type="number">
+      YoY net income growth %
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Get Product Segments
+
+Retrieve revenue breakdown by product segment.
+
+**Endpoint**: `GET /companies/{symbol}/product-segments`
+
+**Authentication**: Required
+
+```bash cURL
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  https://api.financeagent.com/companies/AAPL/product-segments
+```
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Request status
+</ResponseField>
+
+<ResponseField name="symbol" type="string">
+  Ticker symbol
+</ResponseField>
+
+<ResponseField name="segment_type" type="string">
+  "product"
+</ResponseField>
+
+<ResponseField name="segments" type="array">
+  Array of product segments
+  <Expandable title="segment object">
+    <ResponseField name="segment" type="string">
+      Segment name (e.g., "iPhone")
+    </ResponseField>
+    <ResponseField name="revenue" type="number">
+      Segment revenue
+    </ResponseField>
+    <ResponseField name="formatted_revenue" type="string">
+      Human-readable revenue (e.g., "$95.23B")
+    </ResponseField>
+    <ResponseField name="percentage" type="number">
+      % of total revenue
+    </ResponseField>
+    <ResponseField name="year" type="integer">
+      Fiscal year
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="summary" type="object">
+  Segment summary statistics
+  <Expandable title="properties">
+    <ResponseField name="total_segments" type="integer">
+      Number of segments
+    </ResponseField>
+    <ResponseField name="total_revenue" type="number">
+      Total revenue across all segments
+    </ResponseField>
+    <ResponseField name="year" type="integer">
+      Data year (defaults to 2024 for historical data)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Get Geographic Segments
+
+Retrieve revenue breakdown by geographic region.
+
+**Endpoint**: `GET /companies/{symbol}/geographic-segments`
+
+**Authentication**: Required
+
+```bash cURL
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  https://api.financeagent.com/companies/GOOGL/geographic-segments
+```
+
+### Response
+
+Same structure as product segments, but with geographic regions:
+
+```json
+{
+  "success": true,
+  "symbol": "GOOGL",
+  "segment_type": "geographic",
+  "segments": [
+    {
+      "segment": "United States",
+      "revenue": 152300000000,
+      "formatted_revenue": "$152.30B",
+      "percentage": 47.5,
+      "year": 2024
+    },
+    {
+      "segment": "EMEA",
+      "revenue": 98700000000,
+      "formatted_revenue": "$98.70B",
+      "percentage": 30.8,
+      "year": 2024
+    }
+  ]
+}
+```
+
+## Get TTM History
+
+Retrieve historical TTM data for multiple quarters.
+
+**Endpoint**: `GET /companies/{symbol}/ttm-history`
+
+**Authentication**: Required
+
+```bash cURL
+curl -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  "https://api.financeagent.com/companies/NVDA/ttm-history?quarters=5"
+```
+
+<ParamField query="quarters" type="integer" default={5}>
+  Number of quarters to retrieve (1-10)
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Request status
+</ResponseField>
+
+<ResponseField name="quarters" type="array">
+  Array of quarterly data
+  <Expandable title="quarter object">
+    <ResponseField name="date" type="string">
+      Quarter date
+    </ResponseField>
+    <ResponseField name="fiscalYear" type="integer">
+      Fiscal year
+    </ResponseField>
+    <ResponseField name="period" type="string">
+      Period (Q1, Q2, Q3, Q4, or FY)
+    </ResponseField>
+    <ResponseField name="revenue" type="number">
+      Quarterly revenue
+    </ResponseField>
+    <ResponseField name="netIncome" type="number">
+      Quarterly net income
+    </ResponseField>
+    <ResponseField name="eps" type="number">
+      Earnings per share
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example: Full Company Analysis
+
+```python Python
+import requests
+
+token = "YOUR_JWT_TOKEN"
+headers = {"Authorization": f"Bearer {token}"}
+base_url = "https://api.financeagent.com/companies"
+
+# 1. Search for company
+response = requests.get(
+    f"{base_url}/search",
+    params={"query": "Apple", "limit": 1},
+    headers=headers
+)
+symbol = response.json()["companies"][0]["symbol"]
+
+# 2. Get detailed company info
+details = requests.get(f"{base_url}/{symbol}", headers=headers).json()
+
+# 3. Get TTM metrics
+ttm = requests.get(f"{base_url}/{symbol}/ttm-metrics", headers=headers).json()
+
+# 4. Get product segments
+segments = requests.get(
+    f"{base_url}/{symbol}/product-segments",
+    headers=headers
+).json()
+
+print(f"Company: {details['company']['companyName']}")
+print(f"Revenue: ${ttm['metrics']['revenueTtm']:,.0f}")
+print(f"Top Segment: {segments['segments'][0]['segment']}")
+```

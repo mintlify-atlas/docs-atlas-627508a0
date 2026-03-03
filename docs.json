@@ -84,7 +84,9 @@
             "pages": [
               "api/chat",
               "api/companies",
+              "api/financials",
               "api/transcripts",
+              "api/sec-filings",
               "api/screener"
             ]
           },

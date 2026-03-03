@@ -1,0 +1,285 @@
+---
+title: Financial statements
+description: Access income statements, balance sheets, and cash flow statements
+icon: chart-line
+---
+
+# Financial statements API
+
+Retrieve structured financial statement data for companies, including income statements, balance sheets, and cash flow statements.
+
+<Note>
+Requires authentication. Financial data is sourced from the `financial_data` schema in PostgreSQL.
+</Note>
+
+## Get income statement
+
+Retrieve income statement data for multiple years.
+
+**Endpoint**: `GET /companies/{symbol}/income-statement`
+
+### Path parameters
+
+<ParamField path="symbol" type="string" required>
+  Company ticker symbol (e.g., "AAPL", "MSFT")
+</ParamField>
+
+### Query parameters
+
+<ParamField query="years" type="integer" default={5}>
+  Number of years of data to retrieve (1-10)
+</ParamField>
+
+### Response
+
+<ResponseField name="symbol" type="string">
+  Company ticker
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array of annual income statement records
+  <Expandable title="Income statement fields">
+    <ResponseField name="date" type="string">
+      Statement date
+    </ResponseField>
+    <ResponseField name="calendarYear" type="integer">
+      Calendar year
+    </ResponseField>
+    <ResponseField name="period" type="string">
+      Period type (typically "FY" for fiscal year)
+    </ResponseField>
+    <ResponseField name="revenue" type="number">
+      Total revenue
+    </ResponseField>
+    <ResponseField name="costOfRevenue" type="number">
+      Cost of goods sold (COGS)
+    </ResponseField>
+    <ResponseField name="grossProfit" type="number">
+      Gross profit
+    </ResponseField>
+    <ResponseField name="grossProfitRatio" type="number">
+      Gross profit margin
+    </ResponseField>
+    <ResponseField name="researchAndDevelopmentExpenses" type="number">
+      R&D expenses
+    </ResponseField>
+    <ResponseField name="operatingExpenses" type="number">
+      Total operating expenses
+    </ResponseField>
+    <ResponseField name="operatingIncome" type="number">
+      Operating income
+    </ResponseField>
+    <ResponseField name="operatingIncomeRatio" type="number">
+      Operating margin
+    </ResponseField>
+    <ResponseField name="ebitda" type="number">
+      Earnings before interest, taxes, depreciation, and amortization
+    </ResponseField>
+    <ResponseField name="ebitdaRatio" type="number">
+      EBITDA margin
+    </ResponseField>
+    <ResponseField name="netIncome" type="number">
+      Net income
+    </ResponseField>
+    <ResponseField name="netIncomeRatio" type="number">
+      Net profit margin
+    </ResponseField>
+    <ResponseField name="eps" type="number">
+      Earnings per share (basic)
+    </ResponseField>
+    <ResponseField name="epsDiluted" type="number">
+      Earnings per share (diluted)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl https://api.financeagent.com/companies/AAPL/income-statement?years=5 \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+## Get balance sheet
+
+Retrieve balance sheet data for multiple years.
+
+**Endpoint**: `GET /companies/{symbol}/balance-sheet`
+
+### Path parameters
+
+<ParamField path="symbol" type="string" required>
+  Company ticker symbol
+</ParamField>
+
+### Query parameters
+
+<ParamField query="years" type="integer" default={5}>
+  Number of years of data (1-10)
+</ParamField>
+
+### Response
+
+<ResponseField name="symbol" type="string">
+  Company ticker
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array of annual balance sheet records
+  <Expandable title="Balance sheet fields">
+    <ResponseField name="date" type="string">
+      Statement date
+    </ResponseField>
+    <ResponseField name="calendarYear" type="integer">
+      Calendar year
+    </ResponseField>
+    <ResponseField name="totalAssets" type="number">
+      Total assets
+    </ResponseField>
+    <ResponseField name="totalCurrentAssets" type="number">
+      Current assets
+    </ResponseField>
+    <ResponseField name="cashAndCashEquivalents" type="number">
+      Cash and equivalents
+    </ResponseField>
+    <ResponseField name="inventory" type="number">
+      Inventory
+    </ResponseField>
+    <ResponseField name="propertyPlantEquipmentNet" type="number">
+      PP&E (net)
+    </ResponseField>
+    <ResponseField name="totalLiabilities" type="number">
+      Total liabilities
+    </ResponseField>
+    <ResponseField name="totalCurrentLiabilities" type="number">
+      Current liabilities
+    </ResponseField>
+    <ResponseField name="longTermDebt" type="number">
+      Long-term debt
+    </ResponseField>
+    <ResponseField name="totalStockholdersEquity" type="number">
+      Shareholders' equity
+    </ResponseField>
+    <ResponseField name="retainedEarnings" type="number">
+      Retained earnings
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl https://api.financeagent.com/companies/MSFT/balance-sheet?years=3 \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+## Get cash flow statement
+
+Retrieve cash flow statement data for multiple years.
+
+**Endpoint**: `GET /companies/{symbol}/cash-flow`
+
+### Path parameters
+
+<ParamField path="symbol" type="string" required>
+  Company ticker symbol
+</ParamField>
+
+### Query parameters
+
+<ParamField query="years" type="integer" default={5}>
+  Number of years of data (1-10)
+</ParamField>
+
+### Response
+
+<ResponseField name="symbol" type="string">
+  Company ticker
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array of annual cash flow records
+  <Expandable title="Cash flow fields">
+    <ResponseField name="date" type="string">
+      Statement date
+    </ResponseField>
+    <ResponseField name="calendarYear" type="integer">
+      Calendar year
+    </ResponseField>
+    <ResponseField name="operatingCashFlow" type="number">
+      Cash from operating activities
+    </ResponseField>
+    <ResponseField name="capitalExpenditure" type="number">
+      Capital expenditures (CapEx)
+    </ResponseField>
+    <ResponseField name="freeCashFlow" type="number">
+      Free cash flow (OCF - CapEx)
+    </ResponseField>
+    <ResponseField name="investingCashFlow" type="number">
+      Cash from investing activities
+    </ResponseField>
+    <ResponseField name="financingCashFlow" type="number">
+      Cash from financing activities
+    </ResponseField>
+    <ResponseField name="dividendsPaid" type="number">
+      Dividends paid
+    </ResponseField>
+    <ResponseField name="stockBasedCompensation" type="number">
+      Stock-based compensation
+    </ResponseField>
+    <ResponseField name="netCashProvidedByOperatingActivities" type="number">
+      Net operating cash flow
+    </ResponseField>
+    <ResponseField name="changeInWorkingCapital" type="number">
+      Working capital changes
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl https://api.financeagent.com/companies/GOOGL/cash-flow?years=5 \
+  -H "Authorization: Bearer YOUR_TOKEN"
+```
+
+## Data source
+
+Financial statement data is stored in PostgreSQL under the `financial_data` schema:
+
+- `financial_data.income_statements` - Income statement records
+- `financial_data.balance_sheets` - Balance sheet records
+- `financial_data.cash_flow_statements` - Cash flow records
+
+Data is filtered to show only annual (FY) periods by default, with the most recent statement per calendar year.
+
+## Use cases
+
+<AccordionGroup>
+  <Accordion title="Revenue and profitability analysis">
+    Track revenue growth, profit margins, and operating efficiency over time
+  </Accordion>
+  
+  <Accordion title="Financial health assessment">
+    Analyze assets, liabilities, debt levels, and equity structure
+  </Accordion>
+  
+  <Accordion title="Cash generation analysis">
+    Evaluate operating cash flow, free cash flow, and capital allocation
+  </Accordion>
+  
+  <Accordion title="Multi-year trends">
+    Compare financial metrics across multiple years to identify trends
+  </Accordion>
+</AccordionGroup>
+
+## Related endpoints
+
+<CardGroup cols={2}>
+  <Card title="Company info" icon="building" href="/api/companies">
+    Get company details and TTM metrics
+  </Card>
+  <Card title="SEC filings" icon="file-contract" href="/api/sec-filings">
+    Access complete 10-K and 10-Q filing documents
+  </Card>
+</CardGroup>

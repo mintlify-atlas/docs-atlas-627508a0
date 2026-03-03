@@ -1,0 +1,216 @@
+---
+title: SEC filings
+description: Retrieve SEC 10-K, 10-Q, and 8-K filings
+icon: file-contract
+---
+
+# SEC filings API
+
+Access complete SEC filing documents (10-K annual reports, 10-Q quarterly reports, 8-K current events) stored in S3 with metadata in PostgreSQL.
+
+<Note>
+This endpoint serves the **complete filing documents**. For intelligent retrieval and Q&A over SEC filings, use the [SEC Agent](/agent/sec-agent) via the [chat endpoint](/api/chat).
+</Note>
+
+## Get available filings
+
+Retrieve list of available SEC filings for a company.
+
+**Endpoint**: `GET /sec-filings/{ticker}/available`
+
+### Path parameters
+
+<ParamField path="ticker" type="string" required>
+  Company ticker symbol (e.g., "AAPL", "MSFT")
+</ParamField>
+
+### Query parameters
+
+<ParamField query="filing_type" type="string">
+  Filter by filing type: "10-K", "10-Q", or "8-K" (optional)
+</ParamField>
+
+### Response
+
+<ResponseField name="filings" type="array">
+  List of available filings
+  <Expandable title="Filing object">
+    <ResponseField name="ticker" type="string">
+      Company ticker
+    </ResponseField>
+    <ResponseField name="filing_type" type="string">
+      Type: "10-K", "10-Q", or "8-K"
+    </ResponseField>
+    <ResponseField name="fiscal_year" type="integer">
+      Fiscal year
+    </ResponseField>
+    <ResponseField name="filing_date" type="string">
+      Date filed with SEC
+    </ResponseField>
+    <ResponseField name="quarter" type="integer">
+      Quarter (1-4) for 10-Q filings
+    </ResponseField>
+    <ResponseField name="document_length" type="integer">
+      Document size in characters
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example
+
+```bash
+curl https://api.financeagent.com/sec-filings/AAPL/available?filing_type=10-K
+```
+
+## Get filing document
+
+Retrieve complete SEC filing document in markdown format.
+
+**Endpoint**: `GET /sec-filings/{ticker}/{filing_type}/{fiscal_year}`
+
+### Path parameters
+
+<ParamField path="ticker" type="string" required>
+  Company ticker symbol
+</ParamField>
+
+<ParamField path="filing_type" type="string" required>
+  Filing type: "10-K", "10-Q", or "8-K"
+</ParamField>
+
+<ParamField path="fiscal_year" type="integer" required>
+  Fiscal year (returns most recent filing for that year or earlier)
+</ParamField>
+
+### Response
+
+<ResponseField name="ticker" type="string">
+  Company ticker
+</ResponseField>
+
+<ResponseField name="filing_type" type="string">
+  Filing type
+</ResponseField>
+
+<ResponseField name="fiscal_year" type="integer">
+  Fiscal year
+</ResponseField>
+
+<ResponseField name="filing_date" type="string">
+  Date filed
+</ResponseField>
+
+<ResponseField name="company_name" type="string">
+  Official company name
+</ResponseField>
+
+<ResponseField name="document_length" type="integer">
+  Document size in characters
+</ResponseField>
+
+<ResponseField name="markdown" type="string">
+  Complete filing document in markdown format
+</ResponseField>
+
+### Example
+
+```bash
+curl https://api.financeagent.com/sec-filings/AAPL/10-K/2023
+```
+
+## Get filing with highlights
+
+Retrieve SEC filing with relevant sections highlighted based on search context.
+
+**Endpoint**: `POST /sec-filings/with-highlights`
+
+<Note>
+Requires authentication. This endpoint highlights relevant sections from the filing based on chunks returned by the SEC agent.
+</Note>
+
+### Request body
+
+<ParamField body="ticker" type="string" required>
+  Company ticker
+</ParamField>
+
+<ParamField body="filing_type" type="string" required>
+  Filing type: "10-K", "10-Q", or "8-K"
+</ParamField>
+
+<ParamField body="fiscal_year" type="integer" required>
+  Fiscal year
+</ParamField>
+
+<ParamField body="quarter" type="integer">
+  Quarter (1-4) for 10-Q filings
+</ParamField>
+
+<ParamField body="relevant_chunks" type="array">
+  Array of chunk objects with text and metadata to highlight
+</ParamField>
+
+### Response
+
+Same as GET endpoint but with `<mark>` tags injected around relevant sections.
+
+### Example
+
+```bash
+curl -X POST https://api.financeagent.com/sec-filings/with-highlights \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{
+    "ticker": "AAPL",
+    "filing_type": "10-K",
+    "fiscal_year": 2023,
+    "relevant_chunks": [
+      {
+        "chunk_text": "executive compensation",
+        "sec_section": "item_11"
+      }
+    ]
+  }'
+```
+
+## Storage architecture
+
+<CardGroup cols={2}>
+  <Card title="Metadata" icon="database">
+    PostgreSQL stores filing metadata: ticker, fiscal year, filing date, document length
+  </Card>
+  <Card title="Documents" icon="cloud">
+    Railway S3 bucket stores complete markdown documents with section structure
+  </Card>
+</CardGroup>
+
+## Use cases
+
+<AccordionGroup>
+  <Accordion title="View complete 10-K report">
+    Retrieve full annual report with all sections (Business, Risk Factors, Financial Statements, etc.)
+  </Accordion>
+  
+  <Accordion title="Access 10-Q quarterly filings">
+    Get quarterly reports with financial data and management discussion
+  </Accordion>
+  
+  <Accordion title="Read 8-K current events">
+    Access material event disclosures (earnings releases, leadership changes, acquisitions)
+  </Accordion>
+  
+  <Accordion title="Highlight relevant sections">
+    Display filing with specific sections highlighted based on search query
+  </Accordion>
+</AccordionGroup>
+
+## Related endpoints
+
+<CardGroup cols={2}>
+  <Card title="Chat API" icon="comments" href="/api/chat">
+    Ask questions about SEC filings using the intelligent SEC agent
+  </Card>
+  <Card title="SEC Agent" icon="robot" href="/agent/sec-agent">
+    Learn about the planning-driven retrieval system
+  </Card>
+</CardGroup>

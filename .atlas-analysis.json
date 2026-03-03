@@ -1,0 +1,141 @@
+{
+  "projectType": "saas",
+  "projectName": "Finance Agent",
+  "projectDescription": "AI-powered equity research platform for querying earnings calls, SEC filings, and financial news",
+  "theme": "sequoia",
+  "primaryColor": "#2563EB",
+  "lightColor": "#60A5FA",
+  "darkColor": "#1E40AF",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/agent-architecture",
+              "concepts/semantic-routing",
+              "concepts/rag-pipeline",
+              "concepts/data-sources"
+            ]
+          },
+          {
+            "group": "Features",
+            "pages": [
+              "features/earnings-transcripts",
+              "features/sec-filings",
+              "features/real-time-news",
+              "features/financial-screener"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/asking-questions",
+              "guides/data-ingestion",
+              "guides/configuration",
+              "guides/authentication"
+            ]
+          },
+          {
+            "group": "Agent System",
+            "pages": [
+              "agent/overview",
+              "agent/pipeline-stages",
+              "agent/iterative-improvement",
+              "agent/sec-agent"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/chat",
+              "api/companies",
+              "api/transcripts",
+              "api/screener"
+            ]
+          },
+          {
+            "group": "Python API",
+            "pages": [
+              "api/python/agent",
+              "api/python/rag-agent",
+              "api/python/search-engine"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Development",
+        "groups": [
+          {
+            "group": "Setup",
+            "pages": [
+              "development/local-setup",
+              "development/environment-variables",
+              "development/database-setup"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "development/project-structure",
+              "development/tech-stack",
+              "development/database-schema"
+            ]
+          },
+          {
+            "group": "Contributing",
+            "pages": [
+              "development/contributing",
+              "development/testing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "RAG-based financial Q&A with semantic data source routing",
+    "Earnings transcript search with hybrid vector + keyword search",
+    "SEC 10-K filings retrieval with 91% accuracy on FinanceBench",
+    "Real-time financial news integration via Tavily",
+    "Iterative self-improvement with quality evaluation",
+    "Multi-ticker comparative analysis with parallel processing",
+    "Natural language financial screener (in development)",
+    "FastAPI REST endpoints with streaming responses"
+  ],
+  "publicApiSurface": [
+    "POST /message/stream-v2 - Chat with streaming RAG responses",
+    "GET /companies/search - Search companies by ticker/name",
+    "GET /transcript/{ticker}/{year}/{quarter} - Get earnings transcript",
+    "POST /screener/query/stream - Natural language financial queries",
+    "Agent class - Main RAG agent orchestrator",
+    "RAGAgent.execute_rag_flow() - Execute RAG pipeline",
+    "create_agent() - Factory function for agent creation",
+    "SearchEngine.search_similar_chunks() - Hybrid transcript search",
+    "SECFilingsService - SEC 10-K retrieval agent",
+    "TavilyService - Real-time news search"
+  ]
+}
